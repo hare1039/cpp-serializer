@@ -5,6 +5,7 @@
 #include <boost/program_options.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/asio.hpp>
+#include <boost/signals2.hpp>
 
 #include <oneapi/tbb/concurrent_unordered_map.h>
 #include <oneapi/tbb/concurrent_queue.h>
@@ -22,33 +23,36 @@ using net::ip::tcp;
 
 struct bucket
 {
+    // for receiving messages
     oneapi::tbb::concurrent_queue<pack::packet_data> message_queue;
+
+    // to issue a request to binded http url when a message comes in
+    std::shared_ptr<trigger::invoker> binding;
+
+    // holds callbacks of listeners of gets
+    boost::signals2::signal<void (void)> signals;
 };
 
-using message_queue =
+using slots =
     oneapi::tbb::concurrent_unordered_map<
         pack::packet_header,
-        oneapi::tbb::concurrent_queue<pack::packet_data>,
+        bucket,
         pack::packet_header_key_hash,
         pack::packet_header_key_compare>;
-
-
 
 class tcp_connection : public std::enable_shared_from_this<tcp_connection>
 {
     net::io_context& io_context_;
-    message_queue& message_queue_;
-    trigger::binding_map& binding_map_;
+    slots& slots_;
     tcp::socket socket_;
     net::io_context::strand write_io_strand_;
 
 public:
     using pointer = std::shared_ptr<tcp_connection>;
 
-    tcp_connection(net::io_context& io, message_queue& mq, trigger::binding_map& map, tcp::socket socket):
+    tcp_connection(net::io_context& io, slots& s, tcp::socket socket):
         io_context_{io},
-        message_queue_{mq},
-        binding_map_{map},
+        slots_{s},
         socket_{std::move(socket)},
         write_io_strand_{io} {}
 
@@ -135,13 +139,11 @@ public:
 
 //                    std::string url(read_buf->data(), length);
                     std::string url = "http://zion01:2016/";
+                    if (self->slots_[pack->header].binding == nullptr)
+                        self->slots_[pack->header].binding =
+                            std::make_shared<trigger::invoker>(self->io_context_, url);
 
-                    if (not self->binding_map_.contains(pack->header))
-                    {
-                        auto ptr = std::make_shared<trigger::invoker>(self->io_context_, url);
-                        trigger::binding_map::value_type v{pack->header, ptr->shared_from_this()};
-                        self->binding_map_.insert(v);
-                    }
+                    self->slots_[pack->header].binding->post("{\"data\":\"lemonade\"}");
 
                     self->start_read_header();
                 }
@@ -156,7 +158,7 @@ public:
         net::post(
             io_context_,
             [pack, self=shared_from_this()] {
-                self->message_queue_[pack->header].push(pack->data);
+                self->slots_[pack->header].message_queue.push(pack->data);
             });
     }
 
@@ -168,15 +170,14 @@ public:
             [self=shared_from_this(), pack] {
                 pack::packet_pointer resp = std::make_shared<pack::packet>();
 
-                self->binding_map_.at(pack->header)->post("{\"data\":\"lemonade\"}");
 
-                while (self->message_queue_[pack->header].try_pop(resp->data))
+                while (self->slots_[pack->header].message_queue.try_pop(resp->data))
                 {
 
                 }
 
                 while (true)
-                    if (self->message_queue_[pack->header].try_pop(resp->data))
+                    if (self->slots_[pack->header].message_queue.try_pop(resp->data))
                     {
                         resp->header.type = pack::msg_t::response;
                         resp->header.buf = pack->header.buf;
@@ -212,9 +213,7 @@ class tcp_server
 {
     net::io_context& io_context_;
     tcp::acceptor acceptor_;
-    message_queue message_queue_;
-    trigger::binding_map binding_map_;
-
+    slots slots_;
 public:
     tcp_server(net::io_context& io_context, net::ip::port_type port)
         : io_context_(io_context),
@@ -231,8 +230,7 @@ public:
                 {
                     auto accepted = std::make_shared<tcp_connection>(
                         io_context_,
-                        message_queue_,
-                        binding_map_,
+                        slots_,
                         std::move(socket));
                     accepted->start_read_header();
                     start_accept();

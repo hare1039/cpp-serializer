@@ -122,13 +122,6 @@ public:
     }
 };
 
-using binding_map =
-    oneapi::tbb::concurrent_unordered_map<
-        pack::packet_header,
-        std::shared_ptr<invoker>,
-        pack::packet_header_key_hash,
-        pack::packet_header_key_compare>;
-
 } // namespace trigger
 
 #endif // TRIGGER_HPP__
