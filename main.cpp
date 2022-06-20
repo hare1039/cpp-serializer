@@ -30,10 +30,11 @@ struct bucket
     std::shared_ptr<trigger::invoker> binding;
 
     // holds callbacks of listeners of gets
-    boost::signals2::signal<void (void)> signals;
+    boost::signals2::signal<void (pack::packet_pointer)> get_listener;
+    boost::signals2::signal<void (pack::packet_pointer)> trigger_listener;
 };
 
-using slots =
+using topics =
     oneapi::tbb::concurrent_unordered_map<
         pack::packet_header,
         bucket,
@@ -43,16 +44,16 @@ using slots =
 class tcp_connection : public std::enable_shared_from_this<tcp_connection>
 {
     net::io_context& io_context_;
-    slots& slots_;
+    topics& topics_;
     tcp::socket socket_;
     net::io_context::strand write_io_strand_;
 
 public:
     using pointer = std::shared_ptr<tcp_connection>;
 
-    tcp_connection(net::io_context& io, slots& s, tcp::socket socket):
+    tcp_connection(net::io_context& io, topics& s, tcp::socket socket):
         io_context_{io},
-        slots_{s},
+        topics_{s},
         socket_{std::move(socket)},
         write_io_strand_{io} {}
 
@@ -60,7 +61,7 @@ public:
 
     void start_read_header()
     {
-        BOOST_LOG_TRIVIAL(trace) << "start_read_header\n";
+        BOOST_LOG_TRIVIAL(trace) << "start_read_header";
         auto read_buf = std::make_shared<std::array<pack::unit_t, pack::packet_header::bytesize>>();
         net::async_read(
             socket_,
@@ -108,7 +109,7 @@ public:
 
     void start_read_body(pack::packet_pointer pack)
     {
-        BOOST_LOG_TRIVIAL(trace) << "start_read_body\n";
+        BOOST_LOG_TRIVIAL(trace) << "start_read_body";
         auto read_buf = std::make_shared<std::vector<pack::unit_t>>(pack->header.datasize);
         net::async_read(
             socket_,
@@ -127,7 +128,7 @@ public:
 
     void start_call_register(pack::packet_pointer pack)
     {
-        BOOST_LOG_TRIVIAL(trace) << "start_call_register\n";
+        BOOST_LOG_TRIVIAL(trace) << "start_call_register";
         auto read_buf = std::make_shared<std::vector<pack::unit_t>>(pack->header.datasize);
         net::async_read(
             socket_,
@@ -135,17 +136,19 @@ public:
             [self=shared_from_this(), read_buf, pack] (boost::system::error_code ec, std::size_t length) {
                 if (not ec)
                 {
-//                    pack->data.parse(length, read_buf->data());
-
-//                    std::string url(read_buf->data(), length);
-                    std::string url = "http://zion01:2016/";
-                    if (self->slots_[pack->header].binding == nullptr)
-                        self->slots_[pack->header].binding =
+                    self->start_read_header();
+                    pack->data.parse(length, read_buf->data());
+                    std::string url (pack->data.buf.begin(), pack->data.buf.end());
+                    BOOST_LOG_TRIVIAL(trace) << "register " << url;
+//                    std::string url = "http://zion01:2016/api/v1/namespaces/_/actions/example-app-slsfs?blocking=false&result=false";
+                    if (self->topics_[pack->header].binding == nullptr)
+                        self->topics_[pack->header].binding =
                             std::make_shared<trigger::invoker>(self->io_context_, url);
 
-                    self->slots_[pack->header].binding->post("{\"data\":\"lemonade\"}");
-
-                    self->start_read_header();
+                    self->topics_[pack->header].trigger_listener.connect(
+                        [self=self->shared_from_this()] (pack::packet_pointer pack) {
+                            self->topics_[pack->header].binding->post("{\"data\":\"lemonade\"}");
+                        });
                 }
                 else
                     BOOST_LOG_TRIVIAL(error) << "start_call_register: " << ec.message();
@@ -154,11 +157,12 @@ public:
 
     void store(pack::packet_pointer pack)
     {
-        BOOST_LOG_TRIVIAL(trace) << "store";
         net::post(
             io_context_,
             [pack, self=shared_from_this()] {
-                self->slots_[pack->header].message_queue.push(pack->data);
+                self->topics_[pack->header].message_queue.push(pack->data);
+                BOOST_LOG_TRIVIAL(trace) << "store notify_all " << pack->header;
+                self->notify_all(pack);
             });
     }
 
@@ -168,34 +172,40 @@ public:
         net::post(
             io_context_,
             [self=shared_from_this(), pack] {
-                pack::packet_pointer resp = std::make_shared<pack::packet>();
-
-
-                while (self->slots_[pack->header].message_queue.try_pop(resp->data))
+                BOOST_LOG_TRIVIAL(trace) << "try_pop; empty=" << self->topics_[pack->header].message_queue.empty();
+                if (self->topics_[pack->header].message_queue.try_pop(pack->data))
                 {
-
+                    BOOST_LOG_TRIVIAL(trace) << "return data";
+                    pack->header.type = pack::msg_t::response;
+                    self->write(pack);
+                    self->notify_all(pack);
                 }
+                else
+                {
+                    self->topics_[pack->header].get_listener.connect(
+                        [self=self->shared_from_this()](pack::packet_pointer pack) {
+                            BOOST_LOG_TRIVIAL(trace) << "run signaled write";
+                            self->write(pack);
+                        });
+                }
+            });
+    }
 
-                while (true)
-                    if (self->slots_[pack->header].message_queue.try_pop(resp->data))
-                    {
-                        resp->header.type = pack::msg_t::response;
-                        resp->header.buf = pack->header.buf;
-                        self->write(resp);
-                        break;
-                    }
-                    else
-                    {
-                        std::this_thread::yield();
-                        //wait
-                        //message_queue_[pack->header].push_back(pack->data);
-                    }
+    void notify_all(pack::packet_pointer resp)
+    {
+        net::post(
+            io_context_,
+            [self=shared_from_this(), resp] {
+                BOOST_LOG_TRIVIAL(trace) << "notify_all";
+                self->topics_[resp->header].get_listener(resp);
+                self->topics_[resp->header].get_listener.disconnect_all_slots();
+                self->topics_[resp->header].trigger_listener(resp);
             });
     }
 
     void write(pack::packet_pointer pack)
     {
-        BOOST_LOG_TRIVIAL(trace) << "write\n";
+        BOOST_LOG_TRIVIAL(trace) << "write";
         auto buf_pointer = pack->serialize();
         net::async_write(
             socket_,
@@ -204,7 +214,7 @@ public:
                 write_io_strand_,
                 [self=shared_from_this(), buf_pointer] (boost::system::error_code ec, std::size_t length) {
                     if (not ec)
-                        BOOST_LOG_TRIVIAL(debug) << "sent msg\n";
+                        BOOST_LOG_TRIVIAL(debug) << "sent msg";
                 }));
     }
 };
@@ -213,7 +223,7 @@ class tcp_server
 {
     net::io_context& io_context_;
     tcp::acceptor acceptor_;
-    slots slots_;
+    topics topics_;
 public:
     tcp_server(net::io_context& io_context, net::ip::port_type port)
         : io_context_(io_context),
@@ -230,7 +240,7 @@ public:
                 {
                     auto accepted = std::make_shared<tcp_connection>(
                         io_context_,
-                        slots_,
+                        topics_,
                         std::move(socket));
                     accepted->start_read_header();
                     start_accept();
@@ -263,8 +273,8 @@ int main(int argc, char* argv[])
 
     int const worker = std::thread::hardware_concurrency();
     net::io_context ioc {worker};
-    net::signal_set signals(ioc, SIGINT, SIGTERM);
-    signals.async_wait(
+    net::signal_set listener(ioc, SIGINT, SIGTERM);
+    listener.async_wait(
         [&ioc](boost::system::error_code const& error, int signal_number) {
             BOOST_LOG_TRIVIAL(info) << "Stopping... sig=" << signal_number;
             ioc.stop();
@@ -273,7 +283,7 @@ int main(int argc, char* argv[])
     unsigned short const port = vm["listen"].as<unsigned short>();
 
     tcp_server server{ioc, port};
-    BOOST_LOG_TRIVIAL(info) << "listen on " << port << "\n";
+    BOOST_LOG_TRIVIAL(info) << "listen on " << port;
 
     std::vector<std::thread> v;
     v.reserve(worker);
