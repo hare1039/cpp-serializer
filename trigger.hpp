@@ -111,7 +111,10 @@ public:
                         BOOST_LOG_TRIVIAL(warning) << "trigger(" << self->retried_++ << "); start_write error: " << ec.message();
                     }
                     else
+                    {
                         BOOST_LOG_TRIVIAL(error) << "trigger start_write error: " << ec.message();
+                        self->retried_ = 0;
+                    }
                 }));
     }
 
