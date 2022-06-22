@@ -25,11 +25,12 @@ int main(int argc, char* argv[])
 
     std::thread th([&](){
                        auto ptr = std::make_shared<pack::packet>();
-                       return;
+                       //return;
                        // 3
                        ptr->header.type = pack::msg_t::get;
                        ptr->data.buf = std::vector<pack::unit_t>{};
                        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                                                     7, 8, 7, 8, 7, 8, 7, 8,
                                                      7, 8, 7, 8, 7, 8, 7, 8,
                                                      7, 8, 7, 8, 7, 8, 7, 8,
                                                      7, 8, 7, 8, 7, 8, 7, 9};
@@ -52,51 +53,74 @@ int main(int argc, char* argv[])
 
                        for (pack::unit_t i : resp->data.buf)
                            BOOST_LOG_TRIVIAL(trace) << "read: " <<static_cast<int>(i);
-
                    });
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
     // 1
-    BOOST_LOG_TRIVIAL(trace) << "connecting to zion01:12000";
-    pack::packet_pointer ptr = std::make_shared<pack::packet>();
-    ptr->header.type = pack::msg_t::put;
-    ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 9};
+    {
+        BOOST_LOG_TRIVIAL(trace) << "connecting to zion01:12000";
+        pack::packet_pointer ptr = std::make_shared<pack::packet>();
+        ptr->header.type = pack::msg_t::put;
+        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 9};
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<pack::unit_t> distrib(1, 6);
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<pack::unit_t> distrib(1, 6);
 
-    std::generate_n(std::back_inserter(ptr->data.buf), 4, [&] { return distrib(gen); });
-    for (pack::unit_t i : ptr->data.buf)
-        BOOST_LOG_TRIVIAL(trace) << "gen: " <<static_cast<int>(i);
+        std::generate_n(std::back_inserter(ptr->data.buf), 4, [&] { return distrib(gen); });
+        for (pack::unit_t i : ptr->data.buf)
+            BOOST_LOG_TRIVIAL(trace) << "gen: " <<static_cast<int>(i);
 
 
-    BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
-    auto buf = ptr->serialize();
-    BOOST_LOG_TRIVIAL(trace) << ptr->header;
+        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
+        auto buf = ptr->serialize();
+        BOOST_LOG_TRIVIAL(trace) << ptr->header;
 
-    boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+        boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+    }
+    {
+        BOOST_LOG_TRIVIAL(trace) << "call_register to zion01:12000";
+        auto ptr = std::make_shared<pack::packet>();
+        ptr->header.type = pack::msg_t::call_register;
+        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8};
 
-//    // 2
-    BOOST_LOG_TRIVIAL(trace) << "call_register to zion01:12000";
-    ptr = std::make_shared<pack::packet>();
-    ptr->header.type = pack::msg_t::call_register;
-    ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 8,
-                                  7, 8, 7, 8, 7, 8, 7, 9};
-
-    std::string url="http://zion01:2016/api/v1/namespaces/_/actions/example-app-slsfs?blocking=false&result=false";
-    std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
+        std::string url="http://zion01:2016/api/v1/namespaces/_/actions/example-app-slsfs?blocking=false&result=false";
+        std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
 //
-    BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
-    buf = ptr->serialize();
-    BOOST_LOG_TRIVIAL(trace) << ptr->header;
+        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
+        auto buf = ptr->serialize();
+        BOOST_LOG_TRIVIAL(trace) << ptr->header;
 //
-    boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+        boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+    }
+
+    {
+        BOOST_LOG_TRIVIAL(trace) << "issueing to zion01:12000";
+        pack::packet_pointer ptr = std::make_shared<pack::packet>();
+        ptr->header.type = pack::msg_t::put;
+        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8,
+                                      7, 8, 7, 8, 7, 8, 7, 8};
+
+        std::string url="{ \"data\": \"super\"}";
+        std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
+
+        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
+        auto buf = ptr->serialize();
+        BOOST_LOG_TRIVIAL(trace) << ptr->header;
+
+        boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+    }
 
     th.join();
     return EXIT_SUCCESS;

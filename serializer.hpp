@@ -4,7 +4,7 @@
 
 #include <arpa/inet.h>
 
-#include <boost/functional/hash.hpp>
+//#include <boost/functional/hash.hpp>
 
 #include <array>
 #include <tuple>
@@ -12,8 +12,27 @@
 namespace pack
 {
 
+namespace
+{
+
+template <typename Integer>
+void hash_combine(std::size_t& seed, Integer value)
+{
+    seed ^= value + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+
+template <typename It>
+void hash_range(std::size_t& seed, It first, It last)
+{
+    for(; first != last; ++first)
+        hash_combine(seed, *first);
+}
+
+} // namespace
+
+
 using unit_t = std::uint8_t;
-using key_t = std::array<unit_t, 256 / 8 / sizeof(unit_t)>;
+using key_t = std::array<unit_t, 320 / 8 / sizeof(unit_t)>;
 enum class msg_t: unit_t
 {
     error,
@@ -97,7 +116,12 @@ struct packet_header
 
 struct packet_header_key_hash
 {
-    auto operator() (packet_header const& key) const -> std::size_t { return boost::hash_value(key.buf); }
+    auto operator() (packet_header const& key) const -> std::size_t
+    {
+        std::size_t seed = 0x1b873593;
+        hash_range(seed, key.buf.begin(), key.buf.end());
+        return seed;
+    }
 };
 
 struct packet_header_key_compare
