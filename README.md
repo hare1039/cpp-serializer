@@ -19,3 +19,7 @@ Change `client.cpp` to test
 ```
 docker exec -it tst /final/build-release/bin/client
 ```
+
+# About design:
+- Most of the logics are in `main.cpp`.
+- Any function start with `start` is a async (defer) call
