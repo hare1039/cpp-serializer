@@ -55,7 +55,7 @@ public:
         trigger_listener_.connect(std::forward<Function>(f));
     }
 
-    void trigger_post(std::string const& body) { binding_->post(body); }
+    void trigger_post(std::string const& body) { binding_->start_post(body); }
 
     template<typename Function>
     void get_connect(Function &&f)
@@ -164,7 +164,7 @@ public:
 
                     case pack::msg_t::get:
                         BOOST_LOG_TRIVIAL(debug) << "get ";
-                        self->load(pack);
+                        self->start_load(pack);
                         self->start_read_header();
                         break;
 
@@ -203,7 +203,7 @@ public:
                 if (not ec)
                 {
                     pack->data.parse(length, read_buf->data());
-                    self->store(pack);
+                    self->start_store(pack);
                     self->start_read_header();
                 }
                 else
@@ -223,9 +223,10 @@ public:
                 {
                     self->start_read_header();
                     pack->data.parse(length, read_buf->data());
-                    std::string url (pack->data.buf.begin(), pack->data.buf.end());
+//                    std::string url (pack->data.buf.begin(), pack->data.buf.end());
 
-//                    std::string url = "http://zion01:2016/api/v1/namespaces/_/actions/slsfs-datafunction?blocking=false&result=false";
+                    // no register function need now
+                    std::string const url = "http://zion01:2016/api/v1/namespaces/_/actions/slsfs-datafunction?blocking=false&result=false";
                     bucket& buck = self->get_bucket(pack->header);
                     if (not buck.is_trigger())
                     {
@@ -246,7 +247,7 @@ public:
             });
     }
 
-    void store(pack::packet_pointer pack)
+    void start_store(pack::packet_pointer pack)
     {
         net::post(
             io_context_,
@@ -256,7 +257,7 @@ public:
             });
     }
 
-    void load(pack::packet_pointer pack)
+    void start_load(pack::packet_pointer pack)
     {
         BOOST_LOG_TRIVIAL(trace) << "load";
         net::post(
@@ -267,14 +268,14 @@ public:
                 self->get_bucket(pack->header).get_connect(
                     [self=self->shared_from_this()](pack::packet_pointer pack) {
                         BOOST_LOG_TRIVIAL(trace) << "run signaled write";
-                        self->write(pack);
+                        self->start_write(pack);
                     });
 
                 self->get_bucket(pack->header).start_handle_events(pack);
             });
     }
 
-    void write(pack::packet_pointer pack)
+    void start_write(pack::packet_pointer pack)
     {
         BOOST_LOG_TRIVIAL(trace) << "write";
         auto buf_pointer = pack->serialize();

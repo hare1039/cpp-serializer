@@ -52,11 +52,13 @@ public:
     invoker(net::io_context& io,
             std::string const& url):
         io_context_{io}, write_io_strand_{io}, resolver_{io}, stream_{io},
-        uriparser_{url}, httphost_ {io, uriparser_} {
-        stream_.expires_after(std::chrono::seconds(300));
+        uriparser_{url}, httphost_ {io, uriparser_}
+    {
+        using namespace std::literals;
+        stream_.expires_after(300s);
     }
 
-    void post(std::string const &body)
+    void start_post(std::string const &body)
     {
         BOOST_LOG_TRIVIAL(trace) << "in post";
         auto req = httphost_.gen_request();
