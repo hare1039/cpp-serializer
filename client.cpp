@@ -38,15 +38,20 @@ int main(int argc, char* argv[])
 
     record([&](){ ; }, "base");
 
+    std::array<pack::unit_t, 4> salt;
+
     {
         BOOST_LOG_TRIVIAL(trace) << "connecting to zion01:12000";
         pack::packet_pointer ptr = std::make_shared<pack::packet>();
+        ptr->header.gen_random_salt();
+        salt = ptr->header.random_salt;
+        ptr->header.gen_sequence();
+
         ptr->header.type = pack::msg_t::put;
-        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+        ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
                                       7, 8, 7, 8, 7, 8, 7, 8,
                                       7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 9};
+                                      7, 8, 7, 8, 7, 8, 7, 8};
 
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -56,28 +61,24 @@ int main(int argc, char* argv[])
         for (pack::unit_t i : ptr->data.buf)
             BOOST_LOG_TRIVIAL(trace) << "gen: " <<static_cast<int>(i);
 
-
         BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
         auto buf = ptr->serialize();
         BOOST_LOG_TRIVIAL(trace) << ptr->header;
 
         long int counter = 0;
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 1; i++)
             counter += record([&](){ boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size())); }, "put");
-        std::cout << counter / 10 << " ns\n";
+        std::cout << counter / 1 << " ns\n";
     }
 
     std::thread th([&](){
                        auto ptr = std::make_shared<pack::packet>();
-                       //return;
-                       // 3
+                       ptr->header.random_salt = salt;
                        ptr->header.type = pack::msg_t::get;
-                       ptr->data.buf = std::vector<pack::unit_t>{};
-                       ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                       ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
                                                      7, 8, 7, 8, 7, 8, 7, 8,
                                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                                     7, 8, 7, 8, 7, 8, 7, 8,
-                                                     7, 8, 7, 8, 7, 8, 7, 9};
+                                                     7, 8, 7, 8, 7, 8, 7, 8};
                        auto buf = ptr->serialize();
                        boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
 
@@ -93,9 +94,9 @@ int main(int argc, char* argv[])
                        std::vector<pack::unit_t> bodybuf(resp->header.datasize);
 
                        long int counter = 0;
-                       for (int i = 0; i < 10; i++)
+                       for (int i = 0; i < 1; i++)
                            counter += record([&](){ boost::asio::read(s, boost::asio::buffer(bodybuf.data(), bodybuf.size())); }, "get");
-                       std::cout << counter / 10 << " ns\n";
+                       std::cout << counter / 1 << " ns\n";
 
                        resp->data.parse(resp->header.datasize, bodybuf.data());
 
@@ -104,53 +105,28 @@ int main(int argc, char* argv[])
                    });
 
     th.join();
-//    std::this_thread::sleep_for(std::chrono::seconds(1));
-    // 1
-    {
-        BOOST_LOG_TRIVIAL(trace) << "call_register to zion01:12000";
-        auto ptr = std::make_shared<pack::packet>();
-        ptr->header.type = pack::msg_t::call_register;
-        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8};
 
-        std::string url="http://zion01:2016/api/v1/namespaces/_/actions/example-app-slsfs?blocking=false&result=false";
-        std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
+//    {
+//        BOOST_LOG_TRIVIAL(trace) << "issueing to zion01:12000";
+//        pack::packet_pointer ptr = std::make_shared<pack::packet>();
+//        ptr->header.type = pack::msg_t::put;
+//        ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+//                                      7, 8, 7, 8, 7, 8, 7, 8,
+//                                      7, 8, 7, 8, 7, 8, 7, 8,
+//                                      7, 8, 7, 8, 7, 8, 7, 8};
 //
-        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
-        auto buf = ptr->serialize();
-        BOOST_LOG_TRIVIAL(trace) << ptr->header;
+//        std::string url="{ \"data\": \"super\"}";
+//        std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
 //
-        long int counter = 0;
-        for (int i = 0; i < 10; i++)
-            counter += record([&](){ boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size())); }, "register");
-        std::cout << counter / 10 << " ns\n";
-    }
-
-    {
-        BOOST_LOG_TRIVIAL(trace) << "issueing to zion01:12000";
-        pack::packet_pointer ptr = std::make_shared<pack::packet>();
-        ptr->header.type = pack::msg_t::put;
-        ptr->header.buf = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8};
-
-        std::string url="{ \"data\": \"super\"}";
-        std::copy(url.begin(), url.end(), std::back_inserter(ptr->data.buf));
-
-        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
-        auto buf = ptr->serialize();
-        BOOST_LOG_TRIVIAL(trace) << ptr->header;
-
-        long int counter = 0;
-        for (int i = 0; i < 10; i++)
-            counter += record([&](){ boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size())); }, "issueing");
-        std::cout << counter / 10 << " ns\n";
-    }
+//        BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
+//        auto buf = ptr->serialize();
+//        BOOST_LOG_TRIVIAL(trace) << ptr->header;
+//
+//        long int counter = 0;
+//        for (int i = 0; i < 1; i++)
+//            counter += record([&](){ boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size())); }, "issueing");
+//        std::cout << counter / 1 << " ns\n";
+//    }
 
 
     return EXIT_SUCCESS;

@@ -32,35 +32,31 @@ class bucket
     // to issue a request to binded http url when a message comes in
     std::shared_ptr<trigger::invoker> binding_;
 
-    // holds callbacks of listeners of gets
-    boost::signals2::signal<void (pack::packet_pointer)> get_listener_;
-    boost::signals2::signal<void (pack::packet_pointer)> trigger_listener_;
+    // holds callbacks of listeners
+    boost::signals2::signal<void (pack::packet_pointer)> listener_;
 
 public:
     bucket(net::io_context& io):
         io_context_{io},
         event_io_strand_{io} {}
-    bool is_trigger() { return binding_ != nullptr; }
 
-    void to_trigger(std::string const& url)
+    void to_trigger()
     {
+        static std::string const url = "http://zion01:2016/api/v1/namespaces/_/actions/slsfs-datafunction?blocking=false&result=false";
         if (binding_ == nullptr)
             binding_ = std::make_shared<trigger::invoker>(io_context_, url);
     }
 
-    template<typename Function>
-    void trigger_connect(std::string const& url, Function &&f)
+    void start_trigger_post(std::string const& body)
     {
-        to_trigger(url);
-        trigger_listener_.connect(std::forward<Function>(f));
+        to_trigger();
+        binding_->start_post(body);
     }
-
-    void trigger_post(std::string const& body) { binding_->start_post(body); }
 
     template<typename Function>
     void get_connect(Function &&f)
     {
-        get_listener_.connect(std::forward<Function>(f));
+        listener_.connect(std::forward<Function>(f));
     }
 
     template<typename Msg>
@@ -71,41 +67,39 @@ public:
         if (message_queue_.empty())
             return;
 
-        if (get_listener_.empty() and trigger_listener_.empty())
-            return;
-
         net::post(
             io_context_,
             net::bind_executor(
                 event_io_strand_,
                 [this, key] {
                     pack::packet_pointer resp = std::make_shared<pack::packet>();
+                    resp->header = key->header;
                     resp->header.type = pack::msg_t::response;
-                    resp->header.buf  = key->header.buf;
 
-                    while (message_queue_.try_pop(resp->data))
+                    if (resp->header.is_trigger())
                     {
-                        BOOST_LOG_TRIVIAL(trace) << "return data";
-                        handle_single_events(resp);
+                        while (message_queue_.try_pop(resp->data))
+                        {
+                            // trigger
+                            std::string body;
+                            std::copy(key->data.buf.begin(),
+                                      key->data.buf.end(),
+                                      std::back_inserter(body));
+                            start_trigger_post(body);
+                        }
                     }
-                    BOOST_LOG_TRIVIAL(trace) << "clear get_listener_ ";
-                    get_listener_.disconnect_all_slots();
-                }));
-    }
+                    else
+                    {
+                        if (listener_.empty())
+                            return;
 
-    void handle_single_events(pack::packet_pointer resp)
-    {
-        BOOST_LOG_TRIVIAL(trace) << "single event " << resp->header;
-        if (is_trigger())
-        {
-            BOOST_LOG_TRIVIAL(trace) << "is trigger";
-            trigger_listener_(resp);
-        }
-        else
-        {
-            BOOST_LOG_TRIVIAL(trace) << "is not trigger ";
-            get_listener_(resp);
-        }
+                        while (message_queue_.try_pop(resp->data))
+                            listener_(resp);
+
+                        BOOST_LOG_TRIVIAL(trace) << "clear listener_ ";
+                        listener_.disconnect_all_slots();
+                    }
+                }));
     }
 };
 
@@ -153,33 +147,28 @@ public:
                 {
                     pack::packet_pointer pack = std::make_shared<pack::packet>();
                     pack->header.parse(read_buf->data());
-                    BOOST_LOG_TRIVIAL(debug) << pack->header;
+
 
                     switch (pack->header.type)
                     {
                     case pack::msg_t::put:
-                        BOOST_LOG_TRIVIAL(debug) << "put ";
+                        BOOST_LOG_TRIVIAL(debug) << "put " << pack->header;
                         self->start_read_body(pack);
                         break;
 
                     case pack::msg_t::get:
-                        BOOST_LOG_TRIVIAL(debug) << "get ";
+                        BOOST_LOG_TRIVIAL(debug) << "get " << pack->header;
                         self->start_load(pack);
                         self->start_read_header();
                         break;
 
-                    case pack::msg_t::call_register:
-                        BOOST_LOG_TRIVIAL(debug) << "register ";
-                        self->start_call_register(pack);
-                        break;
-
                     case pack::msg_t::error:
-                        BOOST_LOG_TRIVIAL(error) << "packet error";
+                        BOOST_LOG_TRIVIAL(error) << "packet error" << pack->header;
                         self->start_read_header();
                         break;
 
                     case pack::msg_t::response:
-                        BOOST_LOG_TRIVIAL(error) << "server should not get response error";
+                        BOOST_LOG_TRIVIAL(error) << "server should not get response error" << pack->header;
                         self->start_read_header();
                         break;
                     }
@@ -187,7 +176,7 @@ public:
                 else
                 {
                     if (ec != boost::asio::error::eof)
-                        BOOST_LOG_TRIVIAL(error) << "start_read_header: " << ec.message();
+                        BOOST_LOG_TRIVIAL(error) << ", start_read_header err: " << ec.message();
                 }
             });
     }
@@ -208,42 +197,6 @@ public:
                 }
                 else
                     BOOST_LOG_TRIVIAL(error) << "start_read_body: " << ec.message();
-            });
-    }
-
-    void start_call_register(pack::packet_pointer pack)
-    {
-        BOOST_LOG_TRIVIAL(trace) << "start_call_register";
-        auto read_buf = std::make_shared<std::vector<pack::unit_t>>(pack->header.datasize);
-        net::async_read(
-            socket_,
-            net::buffer(read_buf->data(), read_buf->size()),
-            [self=shared_from_this(), read_buf, pack] (boost::system::error_code ec, std::size_t length) {
-                if (not ec)
-                {
-                    self->start_read_header();
-                    pack->data.parse(length, read_buf->data());
-//                    std::string url (pack->data.buf.begin(), pack->data.buf.end());
-
-                    // no register function need now
-                    std::string const url = "http://zion01:2016/api/v1/namespaces/_/actions/slsfs-datafunction?blocking=false&result=false";
-                    bucket& buck = self->get_bucket(pack->header);
-                    if (not buck.is_trigger())
-                    {
-                        BOOST_LOG_TRIVIAL(info) << "register " << url << " to " << pack->header;
-                        buck.trigger_connect(
-                            url,
-                            [self=self->shared_from_this(), &buck] (pack::packet_pointer pack) {
-                                std::string body;
-                                std::copy(pack->data.buf.begin(),
-                                          pack->data.buf.end(),
-                                          std::back_inserter(body));
-                                buck.trigger_post(body);
-                            });
-                    }
-                }
-                else
-                    BOOST_LOG_TRIVIAL(error) << "start_call_register: " << ec.message();
             });
     }
 
