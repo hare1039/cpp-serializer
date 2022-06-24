@@ -64,20 +64,20 @@ public:
 
     void start_handle_events(pack::packet_pointer key)
     {
-        if (message_queue_.empty())
-            return;
-
+        BOOST_LOG_TRIVIAL(trace) << "start_handle_events starts";
         net::post(
             io_context_,
             net::bind_executor(
                 event_io_strand_,
                 [this, key] {
+                    BOOST_LOG_TRIVIAL(trace) << "start_handle_events runed";
                     pack::packet_pointer resp = std::make_shared<pack::packet>();
                     resp->header = key->header;
-                    resp->header.type = pack::msg_t::response;
+                    resp->header.type = pack::msg_t::ack;
 
                     if (resp->header.is_trigger())
                     {
+                        BOOST_LOG_TRIVIAL(trace) << "post as trigger";
                         while (message_queue_.try_pop(resp->data))
                         {
                             // trigger
@@ -90,9 +90,11 @@ public:
                     }
                     else
                     {
-                        if (listener_.empty())
+                        BOOST_LOG_TRIVIAL(trace) << "start listener events. listener empty=" << listener_.empty() << ", mqueue empty=" << message_queue_.empty();
+                        if (listener_.empty() or message_queue_.empty())
                             return;
 
+                        BOOST_LOG_TRIVIAL(trace) << "running listener events";
                         while (message_queue_.try_pop(resp->data))
                             listener_(resp);
 
@@ -148,7 +150,6 @@ public:
                     pack::packet_pointer pack = std::make_shared<pack::packet>();
                     pack->header.parse(read_buf->data());
 
-
                     switch (pack->header.type)
                     {
                     case pack::msg_t::put:
@@ -162,15 +163,27 @@ public:
                         self->start_read_header();
                         break;
 
-                    case pack::msg_t::error:
+                    case pack::msg_t::err:
+                    {
                         BOOST_LOG_TRIVIAL(error) << "packet error" << pack->header;
+                        pack::packet_pointer resp = std::make_shared<pack::packet>();
+                        resp->header = pack->header;
+                        resp->header.type = pack::msg_t::err;
+                        self->start_write(resp);
                         self->start_read_header();
                         break;
+                    }
 
-                    case pack::msg_t::response:
-                        BOOST_LOG_TRIVIAL(error) << "server should not get response error" << pack->header;
+                    case pack::msg_t::ack:
+                    {
+                        BOOST_LOG_TRIVIAL(error) << "server should not get ack. error: " << pack->header;
+                        pack::packet_pointer resp = std::make_shared<pack::packet>();
+                        resp->header = pack->header;
+                        resp->header.type = pack::msg_t::err;
+                        self->start_write(resp);
                         self->start_read_header();
                         break;
+                    }
                     }
                 }
                 else
@@ -204,15 +217,21 @@ public:
     {
         net::post(
             io_context_,
-            [pack, self=shared_from_this()] {
-                self->get_bucket(pack->header).push_message(pack->data);
-                self->get_bucket(pack->header).start_handle_events(pack);
+            [self=shared_from_this(), pack] {
+                bucket& buck = self->get_bucket(pack->header);
+                buck.push_message(pack->data);
+                buck.start_handle_events(pack);
+
+                pack::packet_pointer resp = std::make_shared<pack::packet>();
+                resp->header = pack->header;
+                resp->header.type = pack::msg_t::ack;
+                self->start_write(resp);
             });
     }
 
     void start_load(pack::packet_pointer pack)
     {
-        BOOST_LOG_TRIVIAL(trace) << "load";
+        BOOST_LOG_TRIVIAL(trace) << "start_load";
         net::post(
             io_context_,
             [self=shared_from_this(), pack] {

@@ -11,11 +11,14 @@ ADD profiles /pre/profiles
 ADD conanfile.txt /pre
 
 RUN mkdir /pre/build && cd /pre/build && \
-    conan install .. --profile ../profiles/release-native --build missing
+    conan install .. --profile ../profiles/release-native --build missing && \
+    conan install .. --profile ../profiles/debug --build missing
 
 ADD . /final
 
-RUN cd /final && \
-    make release
+ARG debug
 
-ENTRYPOINT ["/final/build-release/bin/run", "--listen", "12000"]
+RUN cd /final && \
+    bash -c 'echo debug=$debug; if [[ -z "$debug" ]]; then make release; else make debug; fi'
+
+ENTRYPOINT ["/final/build/bin/run", "--listen", "12000"]

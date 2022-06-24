@@ -87,7 +87,6 @@ void init_log()
     boost::log::core::get()->set_filter(
         boost::log::trivial::severity >= boost::log::trivial::trace);
 #endif // NDEBUG
-
     /* log formatter: https://gist.github.com/xiongjia/e23b9572d3fc3d677e3d
      * [TimeStamp] [Severity Level] [Scope] Log message
      */

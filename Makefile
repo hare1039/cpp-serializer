@@ -9,12 +9,16 @@ CXX ?= c++
 from-docker:
 	docker build -t hare1039/transport:0.0.1 .
 
+debug-from-docker:
+	docker build -t hare1039/transport:0.0.1 . --build-arg debug=true
+
+
 release-all: release debug
 	echo "build all"
 
 release:
-	mkdir -p build-release && \
-	cd build-release && \
+	mkdir -p build && \
+	cd build && \
 	conan install .. --profile ../profiles/release-native --build missing && \
 	cmake .. -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_C_COMPILER=${CC}   \
@@ -22,8 +26,8 @@ release:
 	cmake --build .
 
 debug:
-	mkdir -p build-debug && \
-    cd build-debug && \
+	mkdir -p build && \
+    cd build && \
     conan install .. --profile ../profiles/debug --build missing && \
     cmake .. -DCMAKE_BUILD_TYPE=Debug \
              -DCMAKE_C_COMPILER=${CC}   \

@@ -38,21 +38,17 @@ int main(int argc, char* argv[])
 
     record([&](){ ; }, "base");
 
-    std::array<pack::unit_t, 4> salt;
+    pack::packet_pointer ptr = std::make_shared<pack::packet>();
+    ptr->header.gen();
+
+    ptr->header.type = pack::msg_t::put;
+    ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
+                                  7, 8, 7, 8, 7, 8, 7, 8,
+                                  7, 8, 7, 8, 7, 8, 7, 8,
+                                  7, 8, 7, 8, 7, 8, 7, 8};
 
     {
         BOOST_LOG_TRIVIAL(trace) << "connecting to zion01:12000";
-        pack::packet_pointer ptr = std::make_shared<pack::packet>();
-        ptr->header.gen_random_salt();
-        salt = ptr->header.random_salt;
-        ptr->header.gen_sequence();
-
-        ptr->header.type = pack::msg_t::put;
-        ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8,
-                                      7, 8, 7, 8, 7, 8, 7, 8};
-
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<pack::unit_t> distrib(1, 6);
@@ -63,48 +59,67 @@ int main(int argc, char* argv[])
 
         BOOST_LOG_TRIVIAL(trace) << "writinging to zion01:12000";
         auto buf = ptr->serialize();
-        BOOST_LOG_TRIVIAL(trace) << ptr->header;
 
         long int counter = 0;
         for (int i = 0; i < 1; i++)
-            counter += record([&](){ boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size())); }, "put");
+        {
+            auto const start = std::chrono::high_resolution_clock::now();
+            boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+
+            pack::packet_pointer resp = std::make_shared<pack::packet>();
+            std::vector<pack::unit_t> headerbuf(pack::packet_header::bytesize);
+            boost::asio::read(s, boost::asio::buffer(headerbuf.data(), headerbuf.size()));
+            auto const now = std::chrono::high_resolution_clock::now();
+            auto relativetime = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
+
+            resp->header.parse(headerbuf.data());
+            BOOST_LOG_TRIVIAL(info) << resp->header;
+            counter += relativetime;
+        }
+
         std::cout << counter / 1 << " ns\n";
     }
 
-    std::thread th([&](){
-                       auto ptr = std::make_shared<pack::packet>();
-                       ptr->header.random_salt = salt;
-                       ptr->header.type = pack::msg_t::get;
-                       ptr->header.key = pack::key_t{7, 8, 7, 8, 7, 8, 7, 8,
-                                                     7, 8, 7, 8, 7, 8, 7, 8,
-                                                     7, 8, 7, 8, 7, 8, 7, 8,
-                                                     7, 8, 7, 8, 7, 8, 7, 8};
-                       auto buf = ptr->serialize();
-                       boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+    {
+        auto rptr = std::make_shared<pack::packet>();
+        rptr->header = ptr->header;
+        rptr->header.gen_sequence();
+        rptr->header.type = pack::msg_t::get;
 
-                       pack::packet_pointer resp = std::make_shared<pack::packet>();
-                       std::vector<pack::unit_t> headerbuf(pack::packet_header::bytesize);
+        auto buf = rptr->serialize();
+        auto const start = std::chrono::high_resolution_clock::now();
+        BOOST_LOG_TRIVIAL(trace) << "get writing";
+        boost::asio::write(s, boost::asio::buffer(buf->data(), buf->size()));
+        auto const now = std::chrono::high_resolution_clock::now();
 
-                       BOOST_LOG_TRIVIAL(trace) << "reading from zion01:12000";
-                       boost::asio::read(s, boost::asio::buffer(headerbuf.data(), headerbuf.size()));
-                       resp->header.parse(headerbuf.data());
+        pack::packet_pointer resp = std::make_shared<pack::packet>();
+        std::vector<pack::unit_t> headerbuf(pack::packet_header::bytesize);
 
-                       BOOST_LOG_TRIVIAL(trace) << "resp header " << resp->header;
-                       BOOST_LOG_TRIVIAL(trace) << "reading body from zion01:12000";
-                       std::vector<pack::unit_t> bodybuf(resp->header.datasize);
+        BOOST_LOG_TRIVIAL(trace) << "get reading";
+        boost::asio::read(s, boost::asio::buffer(headerbuf.data(), headerbuf.size()));
+        auto const next = std::chrono::high_resolution_clock::now();
+        BOOST_LOG_TRIVIAL(info)
+            << std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count() << " "
+            << std::chrono::duration_cast<std::chrono::nanoseconds>(next - now).count() ;
 
-                       long int counter = 0;
-                       for (int i = 0; i < 1; i++)
-                           counter += record([&](){ boost::asio::read(s, boost::asio::buffer(bodybuf.data(), bodybuf.size())); }, "get");
-                       std::cout << counter / 1 << " ns\n";
+        resp->header.parse(headerbuf.data());
+        BOOST_LOG_TRIVIAL(trace) << "get reading header = " << resp->header;
 
-                       resp->data.parse(resp->header.datasize, bodybuf.data());
+        BOOST_LOG_TRIVIAL(trace) << "resp header " << resp->header;
+        BOOST_LOG_TRIVIAL(trace) << "reading body from zion01:12000";
+        std::vector<pack::unit_t> bodybuf(resp->header.datasize);
 
-                       for (pack::unit_t i : resp->data.buf)
-                           BOOST_LOG_TRIVIAL(trace) << "read: " <<static_cast<int>(i);
-                   });
+        long int counter = 0;
+        for (int i = 0; i < 1; i++)
+            counter += record([&](){ boost::asio::read(s, boost::asio::buffer(bodybuf.data(), bodybuf.size())); }, "get");
+        std::cout << counter / 1 << " ns\n";
 
-    th.join();
+
+        resp->data.parse(resp->header.datasize, bodybuf.data());
+
+        for (pack::unit_t i : resp->data.buf)
+            BOOST_LOG_TRIVIAL(trace) << "read: " <<static_cast<int>(i);
+    }
 
 //    {
 //        BOOST_LOG_TRIVIAL(trace) << "issueing to zion01:12000";

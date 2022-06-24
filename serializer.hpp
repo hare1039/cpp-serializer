@@ -6,8 +6,14 @@
 
 //#include <boost/functional/hash.hpp>
 
+#include <ios>
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <cstring>
 #include <array>
 #include <tuple>
+#include <algorithm>
 #include <random>
 
 namespace pack
@@ -38,10 +44,10 @@ using unit_t = std::uint8_t;
 using key_t = std::array<unit_t, 256 / 8 / sizeof(unit_t)>;
 enum class msg_t: unit_t
 {
-    error,
-    put,
-    get,
-    response,
+    err = 0,
+    put = 1,
+    get = 2,
+    ack = 4,
 };
 
 template<typename Integer>
@@ -103,8 +109,6 @@ struct packet_header
         std::uniform_int_distribution<unit_t> distrib(1, 0xFF);
         std::mt19937& gen = static_rand_engine();
         std::generate(random_salt.begin(), random_salt.end(), [&] { return distrib(gen); });
-        for (pack::unit_t i : random_salt)
-            BOOST_LOG_TRIVIAL(trace) << "gen salt: " << static_cast<int>(i);
     }
 
     void gen_sequence()
@@ -112,8 +116,12 @@ struct packet_header
         std::uniform_int_distribution<unit_t> distrib(1, 0xFF);
         std::mt19937& gen = static_rand_engine();
         std::generate(sequence.begin(), sequence.end(), [&] { return distrib(gen); });
-        for (pack::unit_t i : sequence)
-            BOOST_LOG_TRIVIAL(trace) << "gen seq: " << static_cast<int>(i);
+    }
+
+    void gen()
+    {
+        gen_random_salt();
+        gen_sequence();
     }
 
     void parse(unit_t *pos)
@@ -228,8 +236,6 @@ struct packet
     {
         header.datasize = data.buf.size();
         auto r = std::make_shared<std::vector<unit_t>>(packet_header::bytesize + header.datasize);
-
-        BOOST_LOG_TRIVIAL(trace) << "updated header size: " << header.datasize;
 
         unit_t* pos = header.dump(r->data());
         data.dump(pos);
