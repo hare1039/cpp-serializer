@@ -30,7 +30,7 @@ class bucket
     oneapi::tbb::concurrent_queue<pack::packet_data> message_queue_;
 
     // to issue a request to binded http url when a message comes in
-    std::shared_ptr<trigger::invoker> binding_;
+    std::shared_ptr<trigger::invoker<beast::ssl_stream<beast::tcp_stream>>> binding_;
 
     // holds callbacks of listeners
     boost::signals2::signal<void (pack::packet_pointer)> listener_;
@@ -42,9 +42,9 @@ public:
 
     void to_trigger()
     {
-        static std::string const url = "http://zion01:2016/api/v1/namespaces/_/actions/slsfs-datafunction?blocking=false&result=false";
+        static std::string const url = "https://zion01/api/v1/namespaces/_/actions/slsfs-metadatafunction?blocking=false&result=false";
         if (binding_ == nullptr)
-            binding_ = std::make_shared<trigger::invoker>(io_context_, url);
+            binding_ = std::make_shared<trigger::invoker<beast::ssl_stream<beast::tcp_stream>>>(io_context_, url, basic::ssl_ctx());
     }
 
     void start_trigger_post(std::string const& body)
@@ -256,7 +256,7 @@ public:
             net::buffer(buf_pointer->data(), buf_pointer->size()),
             net::bind_executor(
                 write_io_strand_,
-                [self=shared_from_this(), buf_pointer] (boost::system::error_code ec, std::size_t length) {
+                [self=shared_from_this(), buf_pointer] (boost::system::error_code ec, std::size_t /*length*/) {
                     if (not ec)
                         BOOST_LOG_TRIVIAL(debug) << "sent msg";
                 }));
@@ -318,7 +318,7 @@ int main(int argc, char* argv[])
     net::io_context ioc {worker};
     net::signal_set listener(ioc, SIGINT, SIGTERM);
     listener.async_wait(
-        [&ioc](boost::system::error_code const& error, int signal_number) {
+        [&ioc](boost::system::error_code const&, int signal_number) {
             BOOST_LOG_TRIVIAL(info) << "Stopping... sig=" << signal_number;
             ioc.stop();
         });

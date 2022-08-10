@@ -2,9 +2,12 @@
 #ifndef BASIC_HPP__
 #define BASIC_HPP__
 
+#include "scope_exit.hpp"
+
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
+#include <boost/beast/ssl.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/spawn.hpp>
@@ -56,12 +59,10 @@
 #include <fstream>
 #include <charconv>
 
-#include "scope_exit.hpp"
-
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http  = boost::beast::http;   // from <boost/beast/http.hpp>
 namespace net   = boost::asio;          // from <boost/asio.hpp>
-namespace bp    = boost::process;       // from <boost/process.hpp>
+namespace ssl   = boost::asio::ssl;
 using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 using namespace std::string_literals;
 
@@ -107,6 +108,28 @@ void init_log()
     auto console = boost::log::add_console_log(std::clog);
     console->set_formatter(final_format);
 }
+
+auto ssl_ctx() -> ssl::context&
+{
+    static ssl::context ctx {ssl::context::tlsv12_client};
+    return ctx;
+}
+
+void init_ssl()
+{
+    net::io_context ioc;
+
+    // The SSL context is required, and holds certificates
+    ssl::context& ctx = ssl_ctx();
+
+    // This holds the root certificate used for verification
+//    load_root_certificates(ctx);
+    // https://www.boost.org/doc/libs/master/libs/beast/example/common/root_certificates.hpp
+
+    // verify_none, verify_peer, verify_fail_if_no_peer_cert, verify_client_once
+    ctx.set_verify_mode(ssl::verify_none);
+}
+
 
 inline
 auto genuuid() -> boost::uuids::uuid

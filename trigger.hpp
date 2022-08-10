@@ -5,8 +5,15 @@
 #include "basic.hpp"
 #include "serializer.hpp"
 
+#include <boost/beast/ssl.hpp>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
 #include <oneapi/tbb/concurrent_unordered_map.h>
+#pragma GCC diagnostic pop
+
 #include <Poco/URI.h>
+
+#include <concepts>
 
 namespace trigger
 {
@@ -31,31 +38,43 @@ struct httphost
         req->set(http::field::host, host);
         req->set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
         req->set(http::field::content_type, "application/json");
-        req->set(http::field::authorization, "Basic Nzg5YzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOmFiY3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=");
+//        req->set(http::field::authorization, "Basic Nzg5YzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOmFiY3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A="); admin
+        req->set(http::field::authorization, "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A="); // guest
         req->target(target);
         return req;
     }
 };
 
-class invoker : public std::enable_shared_from_this<invoker>
+// StreamType = beast::ssl_stream<beast::tcp_stream> or beast::tcp_stream
+using ssl_type = beast::ssl_stream<beast::tcp_stream>;
+
+template <typename T>
+concept IsSupportedStream =
+    std::is_same_v<T, ssl_type> ||
+    std::is_same_v<T, beast::tcp_stream>;
+
+template<typename StreamType> requires IsSupportedStream<StreamType>
+class invoker : public std::enable_shared_from_this<invoker<StreamType>>
 {
     net::io_context& io_context_;
-    net::io_context::strand write_io_strand_;
+    net::io_context::strand io_strand_;
     tcp::resolver resolver_;
-    beast::tcp_stream stream_;
+
+    StreamType stream_;
+
     beast::flat_buffer buffer_;
     Poco::URI uriparser_;
     httphost httphost_;
     std::size_t retried_ = 0;
 
 public:
-    invoker(net::io_context& io,
-            std::string const& url):
-        io_context_{io}, write_io_strand_{io}, resolver_{io}, stream_{io},
+    template<typename ... Arguments>
+    invoker(net::io_context& io, std::string const& url, Arguments && ... args):
+        io_context_{io}, io_strand_{io}, resolver_{io}, stream_{io, std::forward<Arguments>(args)...},
         uriparser_{url}, httphost_ {io, uriparser_}
     {
         using namespace std::literals;
-        stream_.expires_after(300s);
+        beast::get_lowest_layer(stream_).expires_after(300s);
     }
 
     void start_post(std::string const &body)
@@ -65,7 +84,7 @@ public:
         req->body() = body;
         req->method(http::verb::post);
 
-        if (stream_.socket().is_open())
+        if (beast::get_lowest_layer(stream_).socket().is_open())
             start_write(req);
         else
             start_resolve(req);
@@ -73,26 +92,54 @@ public:
 
     void start_resolve(std::shared_ptr<http::request<http::string_body>> req)
     {
+        if constexpr (std::is_same_v<StreamType, ssl_type>)
+        {
+            if (not SSL_set_tlsext_host_name(stream_.native_handle(), httphost_.host.c_str()))
+            {
+                beast::error_code ec {static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
+                BOOST_LOG_TRIVIAL(error) << ec.message() << "\n";
+                return;
+            }
+        }
+
         resolver_.async_resolve(
             httphost_.host, httphost_.port,
-            [self=shared_from_this(), req](beast::error_code ec, tcp::resolver::results_type results) {
+            net::bind_executor(
+                io_strand_,
+                [self=this->shared_from_this(), req](beast::error_code ec, tcp::resolver::results_type results) {
                 if (not ec)
                     self->start_connect(results, req);
                 else
                     BOOST_LOG_TRIVIAL(error) << "start_connect error: " << ec.message();
-            });
+                }));
     }
 
     void start_connect(tcp::resolver::results_type results, std::shared_ptr<http::request<http::string_body>> req)
     {
-        stream_.async_connect(
+        beast::get_lowest_layer(stream_).async_connect(
             results,
-            [self=shared_from_this(), req](beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
-                if (not ec)
-                    self->start_write(req);
-                else
-                    BOOST_LOG_TRIVIAL(error) << "start_write error: " << ec.message();
-            });
+            net::bind_executor(
+                io_strand_,
+                [self=this->shared_from_this(), req](beast::error_code ec, tcp::resolver::results_type::endpoint_type) {
+                    if (not ec)
+                    {
+                        if constexpr (std::is_same_v<StreamType, beast::ssl_stream<beast::tcp_stream>>)
+                        {
+                            self->stream_.async_handshake(
+                                ssl::stream_base::client,
+                                [self=self->shared_from_this(), req] (beast::error_code ec) {
+                                    if (not ec)
+                                        self->start_write(req);
+                                    else
+                                        BOOST_LOG_TRIVIAL(error) << "start_handshake(ssl) error: " << ec.message();
+                                });
+                        }
+                        else
+                        self->start_write(req);
+                    }
+                    else
+                        BOOST_LOG_TRIVIAL(error) << "start_connect error: " << ec.message();
+                }));
     }
 
     void start_write(std::shared_ptr<http::request<http::string_body>> req)
@@ -103,8 +150,8 @@ public:
         http::async_write(
             stream_, *req,
             net::bind_executor(
-                write_io_strand_,
-                [self=shared_from_this(), req](beast::error_code ec, std::size_t bytes_transferred) {
+                io_strand_,
+                [self=this->shared_from_this(), req](beast::error_code ec, std::size_t /*bytes_transferred*/) {
                     if (not ec)
                         self->start_read();
                     else if (self->retried_ < 3)
@@ -125,7 +172,7 @@ public:
         auto res = std::make_shared<http::response<http::string_body>>();
         http::async_read(
             stream_, buffer_, *res,
-            [self=shared_from_this(), res](beast::error_code ec, std::size_t bytes_transferred) {
+            [self=this->shared_from_this(), res](beast::error_code ec, std::size_t /*bytes_transferred*/) {
                 if (not ec)
                     BOOST_LOG_TRIVIAL(debug) << "read resp: " << res->body();
                 else
