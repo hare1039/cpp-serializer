@@ -11,6 +11,8 @@
 #include <oneapi/tbb/concurrent_unordered_map.h>
 #pragma GCC diagnostic pop
 
+#include <boost/signals2.hpp>
+
 #include <Poco/URI.h>
 
 #include <concepts>
@@ -66,6 +68,7 @@ class invoker : public std::enable_shared_from_this<invoker<StreamType>>
     Poco::URI uriparser_;
     httphost httphost_;
     std::size_t retried_ = 0;
+    boost::signals2::signal<void(std::shared_ptr<http::response<http::string_body>>)> on_read_;
 
 public:
     template<typename ... Arguments>
@@ -75,6 +78,11 @@ public:
     {
         using namespace std::literals;
         beast::get_lowest_layer(stream_).expires_after(300s);
+    }
+
+    template<typename Function>
+    void register_on_read(Function &&f) {
+        on_read_.connect(std::forward<Function>(f));
     }
 
     void start_post(std::string const &body)
@@ -116,6 +124,7 @@ public:
 
     void start_connect(tcp::resolver::results_type results, std::shared_ptr<http::request<http::string_body>> req)
     {
+        BOOST_LOG_TRIVIAL(trace) << "start connect";
         beast::get_lowest_layer(stream_).async_connect(
             results,
             net::bind_executor(
@@ -127,15 +136,17 @@ public:
                         {
                             self->stream_.async_handshake(
                                 ssl::stream_base::client,
-                                [self=self->shared_from_this(), req] (beast::error_code ec) {
-                                    if (not ec)
-                                        self->start_write(req);
-                                    else
-                                        BOOST_LOG_TRIVIAL(error) << "start_handshake(ssl) error: " << ec.message();
-                                });
+                                net::bind_executor(
+                                    self->io_strand_,
+                                    [self=self->shared_from_this(), req] (beast::error_code ec) {
+                                        if (not ec)
+                                            self->start_write(req);
+                                        else
+                                            BOOST_LOG_TRIVIAL(error) << "start_handshake(ssl) error: " << ec.message();
+                                    }));
                         }
                         else
-                        self->start_write(req);
+                            self->start_write(req);
                     }
                     else
                         BOOST_LOG_TRIVIAL(error) << "start_connect error: " << ec.message();
@@ -174,9 +185,13 @@ public:
             stream_, buffer_, *res,
             [self=this->shared_from_this(), res](beast::error_code ec, std::size_t /*bytes_transferred*/) {
                 if (not ec)
+                {
+                    self->on_read_(res);
+                    self->on_read_.disconnect_all_slots();
                     BOOST_LOG_TRIVIAL(debug) << "read resp: " << res->body();
+                }
                 else
-                    BOOST_LOG_TRIVIAL(error) << "start_write error: " << ec.message();
+                    BOOST_LOG_TRIVIAL(error) << "start_read error: " << ec.message();
             });
     }
 };

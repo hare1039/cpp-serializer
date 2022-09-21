@@ -20,7 +20,8 @@ release:
 	mkdir -p build && \
 	cd build && \
 	conan install .. --profile ../profiles/release-native --build missing && \
-	cmake .. -DCMAKE_BUILD_TYPE=Release \
+	cmake .. -G Ninja                   \
+             -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_C_COMPILER=${CC}   \
              -DCMAKE_CXX_COMPILER=${CXX} && \
 	cmake --build .
@@ -29,7 +30,8 @@ debug:
 	mkdir -p build && \
     cd build && \
     conan install .. --profile ../profiles/debug --build missing && \
-    cmake .. -DCMAKE_BUILD_TYPE=Debug \
+    cmake .. -G Ninja \
+             -DCMAKE_BUILD_TYPE=Debug \
              -DCMAKE_C_COMPILER=${CC}   \
              -DCMAKE_CXX_COMPILER=${CXX} && \
     cmake --build .

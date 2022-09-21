@@ -1,7 +1,7 @@
 FROM gcc:12
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3-pip make cmake && \
+    apt-get install -y --no-install-recommends python3-pip make cmake ninja-build && \
     pip3 install conan
 
 RUN conan profile new default --detect &&\

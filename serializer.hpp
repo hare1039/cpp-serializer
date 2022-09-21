@@ -39,6 +39,7 @@ void hash_range(std::size_t& seed, It first, It last)
 
 
 using unit_t = std::uint8_t;
+//using unit_t = char;
 
 // key = [32] byte main key // sha256 bit
 using key_t = std::array<unit_t, 256 / 8 / sizeof(unit_t)>;
@@ -48,6 +49,11 @@ enum class msg_t: unit_t
     put = 1,
     get = 2,
     ack = 4,
+    worker_reg = 8,
+    worker_dereg = 9,
+    worker_push_request = 10,
+    worker_response = 11,
+    trigger = 16,
 };
 
 template<typename Integer>

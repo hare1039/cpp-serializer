@@ -1,6 +1,7 @@
 #include "basic.hpp"
 #include "serializer.hpp"
 #include "trigger.hpp"
+#include "launcher.hpp"
 
 #include <boost/program_options.hpp>
 #include <boost/log/trivial.hpp>
@@ -118,15 +119,17 @@ class tcp_connection : public std::enable_shared_from_this<tcp_connection>
     topics& topics_;
     tcp::socket socket_;
     net::io_context::strand write_io_strand_;
+    launcher::launcher& launcher_;
 
 public:
     using pointer = std::shared_ptr<tcp_connection>;
 
-    tcp_connection(net::io_context& io, topics& s, tcp::socket socket):
+    tcp_connection(net::io_context& io, topics& s, tcp::socket socket, launcher::launcher &l):
         io_context_{io},
         topics_{s},
         socket_{std::move(socket)},
-        write_io_strand_{io} {}
+        write_io_strand_{io},
+        launcher_{l} {}
 
     auto socket() -> tcp::socket& { return socket_; }
 
@@ -163,20 +166,34 @@ public:
                         self->start_read_header();
                         break;
 
-                    case pack::msg_t::err:
+                    case pack::msg_t::ack:
                     {
-                        BOOST_LOG_TRIVIAL(error) << "packet error" << pack->header;
+                        BOOST_LOG_TRIVIAL(error) << "server should not get ack. error: " << pack->header;
                         pack::packet_pointer resp = std::make_shared<pack::packet>();
                         resp->header = pack->header;
-                        resp->header.type = pack::msg_t::err;
+                        resp->header.type = pack::msg_t::ack;
                         self->start_write(resp);
                         self->start_read_header();
                         break;
                     }
 
-                    case pack::msg_t::ack:
+                    case pack::msg_t::worker_reg:
+                        BOOST_LOG_TRIVIAL(info) << "server add worker" << pack->header;
+                        self->launcher_.add_worker(std::move(self->socket_), pack);
+                        self->launcher_.start_jobs();
+                        break;
+
+                    case pack::msg_t::trigger:
+                        BOOST_LOG_TRIVIAL(debug) << "server get new trigger " << pack->header;
+                        self->start_trigger(pack);
+                        break;
+
+                    case pack::msg_t::err:
+                    case pack::msg_t::worker_dereg:
+                    case pack::msg_t::worker_push_request:
+                    case pack::msg_t::worker_response:
                     {
-                        BOOST_LOG_TRIVIAL(error) << "server should not get ack. error: " << pack->header;
+                        BOOST_LOG_TRIVIAL(error) << "packet error " << pack->header;
                         pack::packet_pointer resp = std::make_shared<pack::packet>();
                         resp->header = pack->header;
                         resp->header.type = pack::msg_t::err;
@@ -189,8 +206,32 @@ public:
                 else
                 {
                     if (ec != boost::asio::error::eof)
-                        BOOST_LOG_TRIVIAL(error) << ", start_read_header err: " << ec.message();
+                        BOOST_LOG_TRIVIAL(error) << "start_read_header err: " << ec.message();
                 }
+            });
+    }
+
+    void start_trigger(pack::packet_pointer pack)
+    {
+        BOOST_LOG_TRIVIAL(trace) << "start_trigger";
+        auto read_buf = std::make_shared<std::string>(pack->header.datasize, 0);
+        net::async_read(
+            socket_,
+            net::buffer(read_buf->data(), read_buf->size()),
+            [self=shared_from_this(), read_buf, pack] (boost::system::error_code ec, std::size_t /*length*/) {
+                if (not ec)
+                {
+                    self->launcher_.start_trigger_post(
+                        *read_buf,
+                        [self, pack] (pack::packet_pointer resp) {
+                            self->start_write(resp);
+                            self->start_read_header();
+                        });
+//                    self->start_write(pack);
+//                    self->start_read_header();
+                }
+                else
+                    BOOST_LOG_TRIVIAL(error) << "start_trigger: " << ec.message();
             });
     }
 
@@ -268,10 +309,13 @@ class tcp_server
     net::io_context& io_context_;
     tcp::acceptor acceptor_;
     topics topics_;
+    launcher::launcher launcher_;
+
 public:
     tcp_server(net::io_context& io_context, net::ip::port_type port)
         : io_context_(io_context),
-          acceptor_(io_context, tcp::endpoint(tcp::v4(), port)) {
+          acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
+          launcher_{io_context} {
         start_accept();
     }
 
@@ -284,7 +328,8 @@ public:
                     auto accepted = std::make_shared<tcp_connection>(
                         io_context_,
                         topics_,
-                        std::move(socket));
+                        std::move(socket),
+                        launcher_);
                     accepted->start_read_header();
                     start_accept();
                 }
@@ -315,6 +360,7 @@ int main(int argc, char* argv[])
     }
 
     int const worker = std::thread::hardware_concurrency();
+    //int const worker = 0;
     net::io_context ioc {worker};
     net::signal_set listener(ioc, SIGINT, SIGTERM);
     listener.async_wait(
