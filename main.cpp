@@ -280,14 +280,14 @@ public:
 
                 self->get_bucket(pack->header).get_connect(
                     [self=self->shared_from_this()](pack::packet_pointer pack) {
-                        BOOST_LOG_TRIVIAL(trace) << "run signaled write";
+                        BOOST_LOG_TRIVIAL(trace) << "run signaled wri   te";
                         self->start_write(pack);
                     });
 
                 self->get_bucket(pack->header).start_handle_events(pack);
             });
     }
-
+        
     void start_write(pack::packet_pointer pack)
     {
         BOOST_LOG_TRIVIAL(trace) << "write";

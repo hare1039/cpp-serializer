@@ -11,7 +11,7 @@ Binary will generate to `/final/build-release/bin/run`;
 
 # RUN
 ```
-docker run -it --rm --name tst -p 12000:12000 hare1039/transport:0.0.1
+docker run -it --rm --name tst -p 12000:12000 `hare1039/transport:0.0.1`
 ```
 
 # RUN client to interact with the proxy

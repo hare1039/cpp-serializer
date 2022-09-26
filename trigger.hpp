@@ -188,7 +188,7 @@ public:
                 {
                     self->on_read_(res);
                     self->on_read_.disconnect_all_slots();
-                    BOOST_LOG_TRIVIAL(debug) << "read resp: " << res->body();
+                    BOOST_LOG_TRIVIAL(info) << "read resp: " << res->body();
                 }
                 else
                     BOOST_LOG_TRIVIAL(error) << "start_read error: " << ec.message();

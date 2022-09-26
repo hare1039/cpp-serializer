@@ -36,11 +36,17 @@ void stats(Iterator start, Iterator end, std::string const memo = "")
     double sum = std::accumulate(start, end, 0.0);
     double mean = sum / size, var = 0;
 
+    std::map<int, int> dist;
     for (; start != end; start++)
+    {
+        dist[(*start)/1000000]++;
         var += std::pow((*start) - mean, 2);
+    }
 
     var /= size;
     BOOST_LOG_TRIVIAL(info) << fmt::format("{0} avg={1:.3f} sd={2:.3f}", memo, mean, std::sqrt(var));
+    for (auto && [time, count] : dist)
+        BOOST_LOG_TRIVIAL(info) << fmt::format("{0} {1}: {2}", memo, time, count);
 }
 
 void readtest (int const times, int const bufsize, std::function<int(int)> genpos, std::string const memo = "")

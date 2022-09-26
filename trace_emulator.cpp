@@ -135,15 +135,19 @@ void writetest (int const times, int const bufsize, std::function<int(int)> genp
 
 int main(int argc, char const *argv[])
 {
+    if (argc < 2) {
+        printf("usage: trace_emulator num \n");
+    }
+
     printf("%s\n",argv[1]);
     trace_parser parser(argv[1], 10);
 
     for (auto row = parser.trace_begin(); row != parser.trace_end(); row++)
     {
         if (row->access_type == read_op) {
-            readtest(1, (int) row->blob_bytes, 0, "seq");
+            readtest(1, row->blob_bytes, 0, "seq");
         } else {
-            writetest(1, (int) row->blob_bytes, 0, "seq");
+            writetest(1, row->blob_bytes, 0, "seq");
         }
     }
     return 0;

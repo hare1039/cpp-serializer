@@ -61,6 +61,7 @@ public:
     {
         auto && [it, ok] = workers_.emplace(std::make_shared<df::worker>(io_context_, std::move(socket), *this));
         (*it)->start_read_header();
+        start_jobs();
     }
 
     auto get_available_worker() -> std::shared_ptr<df::worker>
@@ -80,7 +81,7 @@ public:
                     job_ptr j = started_jobs_[pack->header];
                     j->on_completion_(pack);
                     j->state_ = job::state::finished;
-                    BOOST_LOG_TRIVIAL(info) << "job " << j->pack_->header << "complete";
+                    BOOST_LOG_TRIVIAL(info) << "job " << j->pack_->header << " complete";
                 }));
     }
 
@@ -92,7 +93,7 @@ public:
                 [this, pack] () {
                     job_ptr j = started_jobs_[pack->header];
                     j->state_ = job::state::started;
-                    BOOST_LOG_TRIVIAL(info) << "job " << j->pack_->header << "get ack";
+                    BOOST_LOG_TRIVIAL(debug) << "job " << j->pack_->header << " get ack";
                     j->timer_.cancel();
                 }));
     }
@@ -108,8 +109,9 @@ public:
             if (!worker_ptr)
             {
                 registered_jobs_.push(j);
-                create_worker("{ \"operation\": \"write\", \"filename\": \"/e.txt\", \"type\": \"file\", \"position\": 0, \"size\": 0 }");
+                create_worker("{ \"type\": \"wakeup\" }");
                 BOOST_LOG_TRIVIAL(trace) << "Starting jobs, but no worker. Start one.";
+                //continue;
                 break;
             }
 

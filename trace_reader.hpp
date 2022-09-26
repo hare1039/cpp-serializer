@@ -7,7 +7,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
- 
+
 using namespace std;
 
 enum access_type {
@@ -28,7 +28,7 @@ class trace_row {
 class trace_parser {
     private:
         vector<trace_row> rows;
-        trace_row parse_row(string row) 
+        trace_row parse_row(string row)
         {
             trace_row to_return;
             string unparsed_row [11] = {};
@@ -46,20 +46,20 @@ class trace_parser {
                     throw runtime_error("Invalid trace file");
                 }
             }
-            
+
             to_return.timestamp = stol(unparsed_row[0]);
             to_return.app_name = unparsed_row[3];
-            to_return.invocation_id = stol(unparsed_row[4]);
-            to_return.blob_name = unparsed_row[5]; 
+            to_return.invocation_id = stol(unparsed_row[4]); // Why do I have this?
+            to_return.blob_name = unparsed_row[5];
             to_return.blob_bytes = stod(unparsed_row[8]);
             to_return.access_type = (unparsed_row[10] == "True") ? write_op : read_op;
-            
+
 
             return to_return;
         }
 
     public:
-        trace_parser (string file_name, int num_rows_to_read) 
+        trace_parser (string file_name, size_t num_rows_to_read)
         {
             fstream trace (file_name, ios::in);
             string string_row;
@@ -78,11 +78,11 @@ class trace_parser {
             }
 
         };
-        vector<trace_row>::iterator trace_begin () 
+        vector<trace_row>::iterator trace_begin ()
         {
             return rows.begin();
         }
-        vector<trace_row>::iterator trace_end () 
+        vector<trace_row>::iterator trace_end ()
         {
             return rows.end();
         }
