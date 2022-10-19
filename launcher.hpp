@@ -111,7 +111,6 @@ public:
                 registered_jobs_.push(j);
                 create_worker("{ \"type\": \"wakeup\" }");
                 BOOST_LOG_TRIVIAL(trace) << "Starting jobs, but no worker. Start one.";
-                //continue;
                 break;
             }
 

@@ -1,7 +1,7 @@
 FROM gcc:12
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3-pip make cmake ninja-build && \
+    apt-get install -y --no-install-recommends python3-pip make cmake ninja-build ccache && \
     pip3 install conan
 
 RUN conan profile new default --detect &&\
@@ -10,7 +10,8 @@ RUN conan profile new default --detect &&\
 ADD profiles /pre/profiles
 ADD conanfile.txt /pre
 
-RUN mkdir /pre/build && cd /pre/build && \
+RUN --mount=type=cache,target=/ccache \
+    mkdir /pre/build && cd /pre/build && \
     conan install .. --profile ../profiles/release-native --build missing && \
     conan install .. --profile ../profiles/debug --build missing
 
@@ -18,7 +19,10 @@ ADD . /final
 
 ARG debug
 
-RUN cd /final && \
-    bash -c 'echo debug=$debug; if [[ -z "$debug" ]]; then make release; else make debug; fi'
+RUN --mount=type=cache,target=/final/build \
+    cd /final && \
+    bash -c 'echo debug=$debug; if [[ -z "$debug" ]]; then make release; else make debug; fi' && \
+    cp /final/build/bin/* /bin && \
+    chmod +x /bin/run && chmod +x /bin/slsfs-client
 
-ENTRYPOINT ["/final/build/bin/run", "--listen", "12000"]
+ENTRYPOINT ["/bin/run", "--listen", "12000"]

@@ -177,7 +177,7 @@ struct packet_header
         return pos + sizeof(datasize_copy);
     }
 
-    bool is_trigger() { return random_salt.back() == 0; } // if buf[-1] == 0 => is a trigger
+    bool is_trigger() { return random_salt.back() == 0; } // change
 };
 
 struct packet_header_key_hash

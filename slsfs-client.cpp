@@ -1,5 +1,6 @@
 #include "basic.hpp"
 #include "serializer.hpp"
+#include "json-replacement.hpp"
 
 #include <fmt/core.h>
 #include <boost/asio.hpp>
@@ -69,8 +70,20 @@ void readtest (int const times, int const bufsize, std::function<int(int)> genpo
             7, 8, 7, 8, 7, 8, 7, 8,
             7, 8, 7, 8, 7, 8, 7, 8,
             7, 8, 7, 8, 7, 8, 7, 9};
-        std::string const payload = fmt::format("{{\"operation\": \"read\", \"filename\": \"/embl1.txt\", \"type\": \"file\", \"position\": {}, \"size\": {} }}", genpos(i), buf.size());
-        std::copy(payload.begin(), payload.end(), std::back_inserter(ptr->data.buf));
+
+        //std::string const payload = fmt::format("{{\"operation\": \"read\", \"filename\": \"/embl1.txt\", \"type\": \"file\", \"position\": {}, \"size\": {} }}", genpos(i), buf.size());
+        jsre::request r;
+        r.type = jsre::type_t::file;
+        r.operation = jsre::operation_t::read;
+        r.uuid = ptr->header.key;
+        r.position = genpos(i);
+        r.size = buf.size();
+        r.to_network_format();
+
+        ptr->data.buf.resize(sizeof (r));
+        std::memcpy(ptr->data.buf.data(), &r, sizeof (r));
+
+        //std::copy(payload.begin(), payload.end(), std::back_inserter(ptr->data.buf));
 
         ptr->header.gen();
         auto sendbuf = ptr->serialize();
@@ -113,9 +126,23 @@ void writetest (int const times, int const bufsize, std::function<int(int)> genp
             7, 8, 7, 8, 7, 8, 7, 8,
             7, 8, 7, 8, 7, 8, 7, 8,
             7, 8, 7, 8, 7, 8, 7, 8};
-        std::string const payload = fmt::format("{{ \"operation\": \"write\", \"filename\": \"/embl1.txt\", \"type\": \"file\", \"position\": {}, \"size\": {}, \"data\": \"{}\" }}", genpos(i), buf.size(), buf);
+        //std::string const payload = fmt::format("{{ \"operation\": \"write\", \"filename\": \"/embl1.txt\", \"type\": \"file\", \"position\": {}, \"size\": {}, \"data\": \"{}\" }}", genpos(i), buf.size(), buf);
+
+        jsre::request r;
+        r.type = jsre::type_t::file;
+        r.operation = jsre::operation_t::write;
+        r.uuid = ptr->header.key;
+        r.position = genpos(i);
+        r.size = buf.size();
+
+        r.to_network_format();
+
+        ptr->data.buf.resize(sizeof (r) + buf.size());
+        std::memcpy(ptr->data.buf.data(), &r, sizeof (r));
+        std::memcpy(ptr->data.buf.data() + sizeof (r), buf.data(), buf.size());
+
         //= std::string("{\"operation\": \"write\", \"filename\": \"/helloworld.txt\", \"type\": \"file\", \"position\": 0, \"size\": ") + buf.size() + ", \"data\": \"" + buf + "\"}";
-        std::copy(payload.begin(), payload.end(), std::back_inserter(ptr->data.buf));
+        //std::copy(payload.begin(), payload.end(), std::back_inserter(ptr->data.buf));
 
         ptr->header.gen();
         auto buf = ptr->serialize();

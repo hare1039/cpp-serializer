@@ -33,7 +33,7 @@ class bucket
     // to issue a request to binded http url when a message comes in
     std::shared_ptr<trigger::invoker<beast::ssl_stream<beast::tcp_stream>>> binding_;
 
-    // holds callbacks of listeners
+    // holds callbacks of listeners //
     boost::signals2::signal<void (pack::packet_pointer)> listener_;
 
 public:
@@ -287,7 +287,7 @@ public:
                 self->get_bucket(pack->header).start_handle_events(pack);
             });
     }
-        
+
     void start_write(pack::packet_pointer pack)
     {
         BOOST_LOG_TRIVIAL(trace) << "write";
