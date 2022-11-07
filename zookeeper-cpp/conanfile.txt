@@ -1,8 +1,5 @@
 [requires]
 boost/1.80.0@
-onetbb/2021.3.0@
-poco/1.12.2@
-fmt/9.1.0@
 
 [options]
 boost:shared=False

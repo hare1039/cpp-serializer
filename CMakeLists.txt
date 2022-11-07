@@ -21,6 +21,10 @@ set(Boost_INSTALL_DIR ${CONAN_BOOST_ROOT})
 conan_basic_setup()
 
 #set(CROSS_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
+set(CROSS_LINKER_FLAGS "-lzkpp -lzookeeper_mt")
+#set(CMAKE_EXE_LINKER_FLAGS "-lzkpp")
+
+include_directories("${PROJECT_SOURCE_DIR}/zookeeper-cpp/src")
 
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CROSS_LINKER_FLAGS "")
@@ -37,9 +41,9 @@ target_precompile_headers(run PRIVATE <fmt/core.h>)
 target_precompile_headers(slsfs-client REUSE_FROM run)
 target_precompile_headers(trace_emulator REUSE_FROM run)
 
-target_link_libraries(run ${CONAN_LIBS} ${CROSS_LINKER_FLAGS})
-target_link_libraries(slsfs-client ${CONAN_LIBS} ${CROSS_LINKER_FLAGS})
-target_link_libraries(trace_emulator ${CONAN_LIBS} ${CROSS_LINKER_FLAGS})
+target_link_libraries(run ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
+target_link_libraries(slsfs-client ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
+target_link_libraries(trace_emulator ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
 
 IF ("${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
    target_link_libraries(run ws2_32 wsock32)

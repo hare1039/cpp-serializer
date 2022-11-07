@@ -2,6 +2,8 @@
 #include "serializer.hpp"
 #include "trigger.hpp"
 #include "launcher.hpp"
+#include "zookeeper.hpp"
+#include "uuid.hpp"
 
 #include <boost/program_options.hpp>
 #include <boost/log/trivial.hpp>
@@ -371,8 +373,13 @@ int main(int argc, char* argv[])
 
     unsigned short const port = vm["listen"].as<unsigned short>();
 
+    uuid::uuid server_id = uuid::gen_uuid();
+
     tcp_server server{ioc, port};
     BOOST_LOG_TRIVIAL(info) << "listen on " << port;
+
+    zookeeper::zookeeper zoo{ioc};
+    zoo.test();
 
     std::vector<std::thread> v;
     v.reserve(worker);

@@ -75,7 +75,6 @@ void fail(beast::error_code ec, char const* what)
     BOOST_LOG_TRIVIAL(error) << what << ": " << ec.message() << "\n";
 }
 
-
 void init_log()
 {
     boost::log::add_common_attributes();
@@ -130,12 +129,6 @@ void init_ssl()
     ctx.set_verify_mode(ssl::verify_none);
 }
 
-
-inline
-auto genuuid() -> boost::uuids::uuid
-{
-    return boost::uuids::random_generator()();
-}
 
 template<typename StringView>
 auto parse_host(StringView const& remote) -> std::pair<StringView, unsigned short>

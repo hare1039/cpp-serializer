@@ -22,14 +22,15 @@ enum class operation_t : std::int8_t
 };
 
 using key_t = pack::key_t;
-//
+    //std::int8_t
+
 struct request
 {
-    type_t      type;
-    operation_t operation;
-    key_t       uuid;
-    std::size_t position;
-    std::size_t size;
+    type_t        type;
+    operation_t   operation;
+    key_t         uuid;
+    std::uint32_t position;
+    std::uint32_t size;
 
     void to_network_format()
     {
@@ -65,16 +66,16 @@ struct request_parser
         return k;
     }
 
-    auto position() const -> std::size_t
+    auto position() const -> std::uint32_t
     {
-        std::size_t pos;
+        std::uint32_t pos;
         std::memcpy(&pos, refdata + offsetof(request, position), sizeof(pos));
         return pack::ntoh(pos);
     }
 
-    auto size() const -> std::size_t
+    auto size() const -> std::uint32_t
     {
-        std::size_t s;
+        std::uint32_t s;
         std::memcpy(&s, refdata + offsetof(request, size), sizeof(s));
         return pack::ntoh(s);
     }

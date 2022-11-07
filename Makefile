@@ -7,10 +7,10 @@ CXX ?= c++
 .PHONY: release debug from-docker setup
 
 from-docker:
-	DOCKER_BUILDKIT=1 docker build -t hare1039/transport:0.0.1 .
+	DOCKER_BUILDKIT=1 docker build -t hare1039/transport:0.0.2 .
 
 debug-from-docker:
-	DOCKER_BUILDKIT=1 docker build -t hare1039/transport:0.0.1 . --build-arg debug=true
+	DOCKER_BUILDKIT=1 docker build -t hare1039/transport:0.0.2 . --build-arg debug=true
 
 release:
 	mkdir -p build && \
