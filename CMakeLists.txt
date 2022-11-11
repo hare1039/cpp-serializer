@@ -9,8 +9,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_CXX_FLAGS "-Wall")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -Wextra")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wextra -Werror")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -22,7 +23,7 @@ conan_basic_setup()
 
 #set(CROSS_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
 set(CROSS_LINKER_FLAGS "-lzkpp -lzookeeper_mt")
-#set(CMAKE_EXE_LINKER_FLAGS "-lzkpp")
+
 
 include_directories("${PROJECT_SOURCE_DIR}/zookeeper-cpp/src")
 
@@ -33,17 +34,17 @@ endif()
 
 add_executable(run main.cpp)
 add_executable(slsfs-client slsfs-client.cpp)
-add_executable(trace_emulator trace_emulator_ceph.cpp)
+#add_executable(trace_emulator trace_emulator_ceph.cpp)
 
 set(CMAKE_PCH_INSTANTIATE_TEMPLATES ON)
 target_precompile_headers(run PRIVATE <boost/asio.hpp>)
 target_precompile_headers(run PRIVATE <fmt/core.h>)
 target_precompile_headers(slsfs-client REUSE_FROM run)
-target_precompile_headers(trace_emulator REUSE_FROM run)
+#target_precompile_headers(trace_emulator REUSE_FROM run)
 
 target_link_libraries(run ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
 target_link_libraries(slsfs-client ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
-target_link_libraries(trace_emulator ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
+#target_link_libraries(trace_emulator ${CROSS_LINKER_FLAGS} ${CONAN_LIBS})
 
 IF ("${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
    target_link_libraries(run ws2_32 wsock32)

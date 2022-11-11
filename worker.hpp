@@ -62,6 +62,7 @@ public:
                         self->start_read_header();
                         break;
 
+                    case pack::msg_t::proxyjoin:
                     case pack::msg_t::err:
                     case pack::msg_t::put:
                     case pack::msg_t::get:

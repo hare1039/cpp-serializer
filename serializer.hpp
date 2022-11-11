@@ -48,12 +48,15 @@ enum class msg_t: unit_t
     err = 0,
     put = 1,
     get = 2,
-    ack = 4,
+    ack = 3,
+    proxyjoin = 4,
+
     worker_reg = 8,
     worker_dereg = 9,
     worker_push_request = 10,
     worker_response = 11,
-    trigger = 16,
+
+    trigger = 15,
 };
 
 template<typename Integer>

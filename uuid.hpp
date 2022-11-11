@@ -6,15 +6,39 @@
 #include "serializer.hpp"
 
 #include <Poco/Crypto/DigestEngine.h>
+#include <Poco/Base64Encoder.h>
+#include <Poco/Base64Decoder.h>
 
 #include <random>
+#include <vector>
 
 namespace uuid
 {
 
-class uuid : public pack::key_t
+struct uuid : public pack::key_t
 {
-public:
+    template<typename CharType = char>
+    auto to_vector() const -> std::vector<CharType>
+    {
+        std::vector<CharType> v;
+        v.reserve(pack::key_t::size());
+
+        std::copy(pack::key_t::begin(), pack::key_t::end(), std::back_inserter(v));
+        return v;
+    }
+
+    auto encode_base64() const -> std::string
+    {
+        std::stringstream ss;
+        Poco::Base64Encoder encoder{ss};
+        std::for_each(pack::key_t::begin(), pack::key_t::end(),
+                      [&encoder] (auto c) {
+                          static_assert(sizeof(c) == sizeof(char));
+                          encoder << c;
+                      });
+        encoder.close();
+        return ss.str();
+    }
 };
 
 uuid get_uuid(std::string const& buffer)
@@ -49,6 +73,25 @@ uuid gen_uuid()
     std::copy(digest.begin(), digest.end(), id.begin());
     std::cout << Poco::DigestEngine::digestToHex(digest) << "\n";
     return id;
+}
+
+auto decode_base64(std::string const& base64str) -> uuid
+{
+    std::stringstream ss;
+    ss << base64str;
+    Poco::Base64Decoder decoder {ss};
+
+    uuid id;
+    std::copy(std::istreambuf_iterator<char>(decoder),
+              std::istreambuf_iterator<char>(),
+              id.begin());
+    return id;
+}
+
+auto operator << (std::ostream &os, uuid const& id) -> std::ostream&
+{
+    os << id.encode_base64();
+    return os;
 }
 
 } // namespace uuid

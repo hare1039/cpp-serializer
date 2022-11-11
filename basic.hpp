@@ -82,7 +82,7 @@ void init_log()
                                                   boost::log::attributes::named_scope());
 #ifdef NDEBUG
     boost::log::core::get()->set_filter(
-        boost::log::trivial::severity >= boost::log::trivial::info);
+        boost::log::trivial::severity >= boost::log::trivial::trace);
 #else
     boost::log::core::get()->set_filter(
         boost::log::trivial::severity >= boost::log::trivial::trace);

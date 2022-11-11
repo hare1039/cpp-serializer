@@ -190,6 +190,7 @@ public:
                         self->start_trigger(pack);
                         break;
 
+                    case pack::msg_t::proxyjoin:
                     case pack::msg_t::err:
                     case pack::msg_t::worker_dereg:
                     case pack::msg_t::worker_push_request:
@@ -347,7 +348,9 @@ int main(int argc, char* argv[])
     po::options_description desc{"Options"};
     desc.add_options()
         ("help,h", "Print this help messages")
-        ("listen,l", po::value<unsigned short>()->default_value(12000), "listen on this port");
+        ("listen,l", po::value<unsigned short>()->default_value(12000), "listen on this port")
+        ("init", "reset all system (clear zookeeper entries)")
+        ("announce", po::value<std::string>(), "announce this ip address for other proxy to connect");
     po::positional_options_description pos_po;
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv)
@@ -376,18 +379,21 @@ int main(int argc, char* argv[])
     uuid::uuid server_id = uuid::gen_uuid();
 
     tcp_server server{ioc, port};
-    BOOST_LOG_TRIVIAL(info) << "listen on " << port;
+    BOOST_LOG_TRIVIAL(info) << server_id << " listen on " << port;
 
-    zookeeper::zookeeper zoo{ioc};
-    zoo.test();
-
-    std::vector<std::thread> v;
-    v.reserve(worker);
+    zookeeper::zookeeper zoo {ioc};
+//    if (vm.count("init"))
+//        zoo.reset(server_id);
+//    else
+//        zoo.start_setup(server_id.encode_base64(), server_id.to_vector());
+    zoo.start_watch("");
+    std::vector<std::thread> worker_threads;
+    worker_threads.reserve(worker);
     for(int i = 1; i < worker; i++)
-        v.emplace_back([&ioc] { ioc.run(); });
+        worker_threads.emplace_back([&ioc] { ioc.run(); });
     ioc.run();
 
-    for (std::thread& th : v)
+    for (std::thread& th : worker_threads)
         th.join();
 
     return EXIT_SUCCESS;

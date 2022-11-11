@@ -185,8 +185,8 @@ int main(int argc, char *argv[])
 
     //record([&](){ ; }, "base");
 
-    writetest(2, 4096, [](int i) { return 0;}, "once");
-    readtest(1, 4096, [](int i) { return 0;}, "once");
+    writetest(2, 4096, [](int) { return 0;}, "once");
+    readtest(1, 4096, [](int) { return 0;}, "once");
 
 
     return 0;
