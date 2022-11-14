@@ -3,32 +3,52 @@
 #define WORKER_HPP__
 
 #include "basic.hpp"
+#include "uuid.hpp"
 
 #include <boost/signals2.hpp>
 
+#include <concepts>
+
 namespace df
 {
+
+template<typename T>
+concept IsLauncher = requires(T l)
+{
+    { l.on_worker_response(std::declval<pack::packet_pointer>()) } -> std::convertible_to<void>;
+    { l.on_worker_ack     (std::declval<pack::packet_pointer>()) } -> std::convertible_to<void>;
+};
 
 class worker : public std::enable_shared_from_this<worker>
 {
     net::io_context::strand write_strand_;
     tcp::socket socket_;
     bool valid_ = true;
-    using on_worker_response = boost::signals2::signal<void (pack::packet_pointer)>;
-    on_worker_response on_worker_response_;
-    on_worker_response on_worker_ack_;
+    std::atomic<unsigned int> count_ = 0;
+    using launcher_callback = boost::signals2::signal<void (pack::packet_pointer)>;
+    launcher_callback on_worker_ack_;
+    launcher_callback on_worker_response_;
 
 public:
-    template<typename Launcher>
+    template<typename Launcher> requires IsLauncher<Launcher>
     worker(net::io_context& io, tcp::socket socket, Launcher& l):
         write_strand_{io},
         socket_{std::move(socket)}
         {
-            on_worker_response_.connect([&l] (pack::packet_pointer p) { l.on_worker_response(p); } );
-            on_worker_ack_.     connect([&l] (pack::packet_pointer p) { l.on_worker_ack(p); } );
+            on_worker_ack_.connect(
+                [&l, this] (pack::packet_pointer p) {
+                    count_++;
+                    l.on_worker_ack(p);
+                });
+            on_worker_response_.connect(
+                [&l, this] (pack::packet_pointer p) {
+                    count_--;
+                    l.on_worker_response(p);
+                });
         }
 
     bool is_valid() { return valid_; }
+    int  pending_jobs() { return count_.load(); }
 
     void start_read_header()
     {

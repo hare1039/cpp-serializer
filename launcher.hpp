@@ -5,11 +5,15 @@
 #include "basic.hpp"
 #include "serializer.hpp"
 #include "worker.hpp"
+#include "uuid.hpp"
 
 #include <oneapi/tbb/concurrent_unordered_set.h>
 #include <oneapi/tbb/concurrent_queue.h>
+#include <oneapi/tbb/concurrent_hash_map.h>
+
 #include <boost/signals2.hpp>
 
+#include <iterator>
 #include <atomic>
 
 namespace launcher
@@ -43,8 +47,17 @@ class launcher
 {
     net::io_context& io_context_;
     std::shared_ptr<trigger::invoker<beast::ssl_stream<beast::tcp_stream>>> itrigger_;
-    oneapi::tbb::concurrent_unordered_set<std::shared_ptr<df::worker>> workers_;
-    oneapi::tbb::concurrent_queue<job_ptr> registered_jobs_;
+
+    oneapi::tbb::concurrent_hash_map<std::shared_ptr<df::worker>, int /* not used */> worker_set_;
+    using worker_set_accessor = decltype(worker_set_)::accessor;
+
+    oneapi::tbb::concurrent_hash_map<pack::packet_header,
+                                     std::shared_ptr<df::worker>,
+                                     pack::packet_header_key_hash_compare> fileid_to_worker_;
+    using fileid_to_worker_accessor = decltype(fileid_to_worker_)::accessor;
+    using fileid_worker_pair = decltype(fileid_to_worker_)::value_type;
+
+    oneapi::tbb::concurrent_queue<job_ptr> pending_jobs_;
     using jobmap =
         oneapi::tbb::concurrent_unordered_map<
             pack::packet_header,
@@ -53,23 +66,25 @@ class launcher
             pack::packet_header_key_compare>;
     jobmap started_jobs_;
     net::io_context::strand started_jobs_strand_, job_launch_strand_;
+    uuid::uuid const& id_;
 
 public:
-    launcher(net::io_context& io): io_context_{io}, started_jobs_strand_{io}, job_launch_strand_{io} { }
+    launcher(net::io_context& io, uuid::uuid const& id):
+        io_context_{io},
+        started_jobs_strand_{io},
+        job_launch_strand_{io},
+        id_{id} {}
 
-    void add_worker(tcp::socket socket, pack::packet_pointer /*request*/)
+    void add_worker(tcp::socket socket, pack::packet_pointer)
     {
-        auto && [it, ok] = workers_.emplace(std::make_shared<df::worker>(io_context_, std::move(socket), *this));
-        (*it)->start_read_header();
+        auto worker_ptr = std::make_shared<df::worker>(io_context_, std::move(socket), *this);
+        bool ok = worker_set_.emplace(worker_ptr, 0);
+
+        if (not ok)
+            BOOST_LOG_TRIVIAL(error) << "Emplace worker not success";
+
+        worker_ptr->start_read_header();
         start_jobs();
-    }
-
-    auto get_available_worker() -> std::shared_ptr<df::worker>
-    {
-        for (auto&& worker_ptr : workers_)
-            if (worker_ptr->is_valid())
-                return worker_ptr;
-        return nullptr;
     }
 
     void on_worker_response(pack::packet_pointer pack)
@@ -98,19 +113,52 @@ public:
                 }));
     }
 
+    auto get_worker_from_pool(pack::packet_pointer /*packet_ptr*/) -> std::shared_ptr<df::worker>
+    {
+        for (auto&& worker_pair : worker_set_)
+        {
+            if (worker_pair.first->pending_jobs() <= 5)
+                return worker_pair.first;
+        }
+        return nullptr;
+    }
+
+    auto get_assigned_worker(pack::packet_pointer packet_ptr) -> std::shared_ptr<df::worker>
+    {
+        fileid_to_worker_accessor it;
+        if (bool found = fileid_to_worker_.find(it, packet_ptr->header); found)
+            return it->second;
+        else
+        {
+            auto reuse_worker = get_worker_from_pool(packet_ptr);
+            if (!reuse_worker)
+            {
+                BOOST_LOG_TRIVIAL(info) << "No avaliable worker. Start one.";
+                create_worker(fmt::format("{{ \"type\": \"wakeup\" }}"));
+                return nullptr;
+            }
+            else
+            {
+                BOOST_LOG_TRIVIAL(trace) << "Reuse worker";
+                if (not fileid_to_worker_.emplace(packet_ptr->header, reuse_worker))
+                    return nullptr;
+                else
+                    return reuse_worker;
+            }
+        }
+    }
+
     void start_jobs()
     {
         job_ptr j;
-        while (registered_jobs_.try_pop(j))
+        while (pending_jobs_.try_pop(j))
         {
             BOOST_LOG_TRIVIAL(trace) << "Starting jobs";
-            std::shared_ptr<df::worker> worker_ptr = get_available_worker();
+            std::shared_ptr<df::worker> worker_ptr = get_assigned_worker(j->pack_);
 
             if (!worker_ptr)
             {
-                registered_jobs_.push(j);
-                create_worker("{ \"type\": \"wakeup\" }");
-                BOOST_LOG_TRIVIAL(trace) << "Starting jobs, but no worker. Start one.";
+                pending_jobs_.push(j);
                 break;
             }
 
@@ -124,7 +172,7 @@ public:
                     if (ec && ec != boost::asio::error::operation_aborted)
                     {
                         BOOST_LOG_TRIVIAL(debug) << "error: " << ec << "repush job " << j->pack_->header;
-                        registered_jobs_.push(j);
+                        pending_jobs_.push(j);
                     }
                 });
             BOOST_LOG_TRIVIAL(info) << "start job " << j->pack_->header;
@@ -158,9 +206,40 @@ public:
         std::memcpy(pack->data.buf.data(), body.data(), body.size());
 
         auto j = std::make_shared<job>(io_context_, pack, next);
-        registered_jobs_.push(j);
+        pending_jobs_.push(j);
         started_jobs_.emplace(pack->header, j);
         start_jobs();
+    }
+
+    // assumes begin -> end are sorted
+    template<std::forward_iterator ForwardIterator>
+    void reconfigure(ForwardIterator begin, ForwardIterator end)
+    {
+        BOOST_LOG_TRIVIAL(trace) << "launcher reconfigure";
+        for (auto&& pair : fileid_to_worker_)
+        {
+            auto it = std::upper_bound (begin, end, pair.first.key);
+            if (it == end)
+                it = begin;
+
+            if (*it != id_)
+            {
+                start_send_reconfigure_message(pair);
+                // send to new host
+            }
+        }
+    }
+
+    void start_send_reconfigure_message(fileid_worker_pair)
+    {
+        BOOST_LOG_TRIVIAL(info) << "start_send_reconfigure_message";
+    }
+};
+
+} // namespace launcher
+
+
+#endif // LAUNCHER_HPP__
 
 //        if (get_available_worker() == nullptr)
 //        {
@@ -169,10 +248,3 @@ public:
 //            itrigger_->register_on_read(
 //                [next](std::shared_ptr<http::response<http::string_body>> /*resp*/) {});
 //        }
-    }
-};
-
-} // namespace launcher
-
-
-#endif // LAUNCHER_HPP__

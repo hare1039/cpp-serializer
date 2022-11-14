@@ -75,6 +75,11 @@ uuid gen_uuid()
     return id;
 }
 
+auto encode_base64(pack::key_t const& key) -> std::string
+{
+    return static_cast<uuid const*>(&key)->encode_base64();
+}
+
 auto decode_base64(std::string const& base64str) -> uuid
 {
     std::stringstream ss;

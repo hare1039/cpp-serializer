@@ -182,7 +182,6 @@ public:
                     case pack::msg_t::worker_reg:
                         BOOST_LOG_TRIVIAL(info) << "server add worker" << pack->header;
                         self->launcher_.add_worker(std::move(self->socket_), pack);
-                        self->launcher_.start_jobs();
                         break;
 
                     case pack::msg_t::trigger:
@@ -309,16 +308,18 @@ public:
 
 class tcp_server
 {
+    uuid::uuid id_;
     net::io_context& io_context_;
     tcp::acceptor acceptor_;
     topics topics_;
     launcher::launcher launcher_;
 
 public:
-    tcp_server(net::io_context& io_context, net::ip::port_type port)
-        : io_context_(io_context),
+    tcp_server(net::io_context& io_context, net::ip::port_type port, uuid::uuid & id)
+        : id_{id},
+          io_context_(io_context),
           acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
-          launcher_{io_context} {
+          launcher_{io_context, id_} {
         start_accept();
     }
 
@@ -338,6 +339,8 @@ public:
                 }
             });
     }
+
+    auto launcher() -> launcher::launcher& { return launcher_; }
 };
 
 int main(int argc, char* argv[])
@@ -374,19 +377,24 @@ int main(int argc, char* argv[])
             ioc.stop();
         });
 
-    unsigned short const port = vm["listen"].as<unsigned short>();
-
+    unsigned short const port  = vm["listen"].as<unsigned short>();
+    std::string const announce = vm["announce"].as<std::string>();
     uuid::uuid server_id = uuid::gen_uuid();
 
-    tcp_server server{ioc, port};
+    tcp_server server{ioc, port, server_id};
     BOOST_LOG_TRIVIAL(info) << server_id << " listen on " << port;
 
-    zookeeper::zookeeper zoo {ioc};
-//    if (vm.count("init"))
-//        zoo.reset(server_id);
-//    else
-//        zoo.start_setup(server_id.encode_base64(), server_id.to_vector());
-    zoo.start_watch("");
+    zookeeper::zookeeper zoo {ioc, server.launcher()};
+    std::vector<char> connection;
+    fmt::format_to(std::back_inserter(connection), "{}:{}", announce, port);
+
+    if (vm.count("init"))
+        zoo.reset(server_id, connection);
+    else
+        zoo.start_setup(server_id.encode_base64(), connection);
+
+    zoo.start_heartbeat(server_id.encode_base64(), connection);
+
     std::vector<std::thread> worker_threads;
     worker_threads.reserve(worker);
     for(int i = 1; i < worker; i++)

@@ -4,8 +4,6 @@
 
 #include <arpa/inet.h>
 
-//#include <boost/functional/hash.hpp>
-
 #include <ios>
 #include <iostream>
 #include <vector>
@@ -200,6 +198,21 @@ struct packet_header_key_compare
     {
         return (std::tie(key1.key, key1.random_salt) ==
                 std::tie(key2.key, key2.random_salt));
+    }
+};
+
+struct packet_header_key_hash_compare
+{
+    static
+    auto hash (packet_header const& key) -> std::size_t
+    {
+        return packet_header_key_hash{}(key);
+    }
+
+    static
+    bool equal (packet_header const& key1, packet_header const& key2)
+    {
+        return packet_header_key_compare{}(key1, key2);
     }
 };
 
