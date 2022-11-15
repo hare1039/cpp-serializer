@@ -37,7 +37,11 @@ struct uuid : public pack::key_t
                           encoder << c;
                       });
         encoder.close();
-        return ss.str();
+        std::string raw_encode = ss.str();
+        for (char& c : raw_encode)
+            if (c == '/')
+                c = '_';
+        return raw_encode;
     }
 };
 
@@ -49,7 +53,7 @@ uuid get_uuid(std::string const& buffer)
     Poco::DigestEngine::Digest const& digest = engine.digest();
 
     std::copy(digest.begin(), digest.end(), id.begin());
-    std::cout << Poco::DigestEngine::digestToHex(digest) << "\n";
+    //std::cout << Poco::DigestEngine::digestToHex(digest) << "\n";
     return id;
 }
 
@@ -71,7 +75,7 @@ uuid gen_uuid()
     Poco::DigestEngine::Digest const& digest = engine.digest();
 
     std::copy(digest.begin(), digest.end(), id.begin());
-    std::cout << Poco::DigestEngine::digestToHex(digest) << "\n";
+//    std::cout << Poco::DigestEngine::digestToHex(digest) << "\n";
     return id;
 }
 
@@ -80,9 +84,13 @@ auto encode_base64(pack::key_t const& key) -> std::string
     return static_cast<uuid const*>(&key)->encode_base64();
 }
 
-auto decode_base64(std::string const& base64str) -> uuid
+auto decode_base64(std::string& base64str) -> uuid
 {
     std::stringstream ss;
+    for (char& c : base64str)
+        if (c == '_')
+            c = '/';
+
     ss << base64str;
     Poco::Base64Decoder decoder {ss};
 

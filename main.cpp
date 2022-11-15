@@ -370,13 +370,6 @@ int main(int argc, char* argv[])
     int const worker = std::thread::hardware_concurrency();
     //int const worker = 0;
     net::io_context ioc {worker};
-    net::signal_set listener(ioc, SIGINT, SIGTERM);
-    listener.async_wait(
-        [&ioc](boost::system::error_code const&, int signal_number) {
-            BOOST_LOG_TRIVIAL(info) << "Stopping... sig=" << signal_number;
-            ioc.stop();
-        });
-
     unsigned short const port  = vm["listen"].as<unsigned short>();
     std::string const announce = vm["announce"].as<std::string>();
     uuid::uuid server_id = uuid::gen_uuid();
@@ -393,7 +386,13 @@ int main(int argc, char* argv[])
     else
         zoo.start_setup(server_id.encode_base64(), connection);
 
-    zoo.start_heartbeat(server_id.encode_base64(), connection);
+    net::signal_set listener(ioc, SIGINT, SIGTERM);
+    listener.async_wait(
+        [&ioc, &zoo] (boost::system::error_code const&, int signal_number) {
+            BOOST_LOG_TRIVIAL(info) << "Stopping... sig=" << signal_number;
+            zoo.shutdown();
+            ioc.stop();
+        });
 
     std::vector<std::thread> worker_threads;
     worker_threads.reserve(worker);

@@ -125,14 +125,6 @@ public:
             });
     }
 
-    //template<typename OnCompletion>
-    void start_post(pack::packet_pointer pack)//, OnCompletion && oncomp)
-    {
-        BOOST_LOG_TRIVIAL(trace) << "worker start post";
-        //registered_job_[pack->header].connect(std::forward<OnCompletion>(oncomp));
-        start_write(pack);
-    }
-
     void start_write(pack::packet_pointer pack)
     {
         BOOST_LOG_TRIVIAL(trace) << "worker start_write";
@@ -150,6 +142,15 @@ public:
                 }));
     }
 };
+
+
+    //template<typename OnCompletion>
+//    void start_post(pack::packet_pointer pack)//, OnCompletion && oncomp)
+//    {
+//        BOOST_LOG_TRIVIAL(trace) << "worker start post";
+//        //registered_job_[pack->header].connect(std::forward<OnCompletion>(oncomp));
+//        start_write(pack);
+//    }
 
 } // namespace df
 

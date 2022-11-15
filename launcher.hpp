@@ -42,6 +42,13 @@ public:
 };
 
 using job_ptr = std::shared_ptr<job>;
+template<typename T>
+concept CanResolveZookeeper = requires(T t)
+{
+    { t.get_uuid(std::declval<std::string>()) }
+        -> std::convertible_to<net::ip::tcp::endpoint>;
+};
+
 
 class launcher
 {
@@ -164,7 +171,7 @@ public:
 
             BOOST_LOG_TRIVIAL(trace) << "Starting jobs, Start post. ";
 
-            worker_ptr->start_post(j->pack_);
+            worker_ptr->start_write(j->pack_);
 
             using namespace std::chrono_literals;
             j->timer_.async_wait(
@@ -212,8 +219,8 @@ public:
     }
 
     // assumes begin -> end are sorted
-    template<std::forward_iterator ForwardIterator>
-    void reconfigure(ForwardIterator begin, ForwardIterator end)
+    template<std::forward_iterator ForwardIterator, CanResolveZookeeper Zookeeper>
+    void reconfigure(ForwardIterator begin, ForwardIterator end, Zookeeper&& zoo)
     {
         BOOST_LOG_TRIVIAL(trace) << "launcher reconfigure";
         for (auto&& pair : fileid_to_worker_)
@@ -223,16 +230,25 @@ public:
                 it = begin;
 
             if (*it != id_)
-            {
-                start_send_reconfigure_message(pair);
-                // send to new host
-            }
+                start_send_reconfigure_message(pair, zoo.get_uuid(it->encode_base64()));
         }
     }
 
-    void start_send_reconfigure_message(fileid_worker_pair)
+    void start_send_reconfigure_message(fileid_worker_pair & pair, net::ip::tcp::endpoint new_proxy)
     {
-        BOOST_LOG_TRIVIAL(info) << "start_send_reconfigure_message";
+        BOOST_LOG_TRIVIAL(debug) << "start_send_reconfigure_message";
+
+        pack::packet_pointer p = std::make_shared<pack::packet>();
+        p->header.type = pack::msg_t::proxyjoin;
+
+        auto ip = new_proxy.address().to_v4().to_bytes();
+        auto port = pack::hton(new_proxy.port());
+        p->data.buf = std::vector<pack::unit_t>(sizeof(ip) + sizeof(port));
+
+        std::copy(ip.begin(), ip.end(), p->data.buf.begin());
+        p->data.buf.at(sizeof(ip)) = port;
+
+        pair.second->start_write(p);
     }
 };
 

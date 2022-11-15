@@ -6,9 +6,16 @@
 #include "uuid.hpp"
 #include "launcher.hpp"
 
-#define ZKPP_FUTURE_USE_BOOST 1
 #include <zk/client.hpp>
 #include <zk/results.hpp>
+#include <zookeeper/zookeeper.h>
+
+#include <boost/asio.hpp>
+#include <boost/chrono.hpp>
+#include <boost/thread.hpp>
+#include <boost/thread/executors/basic_thread_pool.hpp>
+
+#include <oneapi/tbb/concurrent_hash_map.h>
 
 #include <string>
 #include <chrono>
@@ -23,6 +30,17 @@ class zookeeper
     net::io_context& io_context_;
     zk::client client_;
     launcher::launcher& launcher_;
+    oneapi::tbb::concurrent_hash_map<std::string, net::ip::tcp::endpoint> uuid_cache_;
+//    boost::executors::basic_thread_pool pool_;
+    boost::launch pool_ = boost::launch::async;
+    bool closed_ = false;
+
+#ifdef NDEBUG
+    constexpr static ZooLogLevel loglevel = ZOO_LOG_LEVEL_INFO;
+#else
+    ////constexpr static ZooLogLevel loglevel = ZOO_LOG_LEVEL_DEBUG;
+    constexpr static ZooLogLevel loglevel = ZOO_LOG_LEVEL_INFO;
+#endif // NDEBUG
 
     void erase(zk::string_view sv)
     {
@@ -45,7 +63,11 @@ public:
     zookeeper(net::io_context& io, launcher::launcher &l):
         io_context_{io},
         client_{zk::client::connect("zk://zookeeper-1:2181").get()},
-        launcher_{l} { }
+        launcher_{l} {
+        ::zoo_set_debug_level(loglevel);
+    }
+
+    void shutdown() { closed_ = true; }
 
     void reset(uuid::uuid const& server_id, std::vector<char> const& payload)
     {
@@ -55,9 +77,11 @@ public:
         BOOST_LOG_TRIVIAL(trace) << "creating /slsfs";
 
         client_.create("/slsfs", dummy).then(
+            pool_,
             [this, dummy, &server_id, &payload] (auto v) {
                 BOOST_LOG_TRIVIAL(info) << "create /slsfs: " << v.get();
                 client_.create("/slsfs/proxy", dummy).then(
+                    pool_,
                     [this, &server_id, &payload] (auto v) {
                         BOOST_LOG_TRIVIAL(info) << "create /slsfs/proxy: " << v.get();
                         start_setup(server_id.encode_base64(), payload);
@@ -70,23 +94,28 @@ public:
         using namespace std::string_literals;
         BOOST_LOG_TRIVIAL(trace) << "zk setup start";
         client_.create("/slsfs/proxy/"s + child, payload).then(
-            [this, child] (auto v) {
+            pool_,
+            [this, child, payload] (auto v) {
                 BOOST_LOG_TRIVIAL(debug) << "create on /slsfs/proxy/" << child << ": " << v.get();
                 start_watch(child);
+                start_heartbeat(child, payload);
             });
-        BOOST_LOG_TRIVIAL(trace) << "zk setup start finish";
     }
 
     void start_watch(std::string const& child)
     {
-        BOOST_LOG_TRIVIAL(info) << "watch /slsfs/proxy start";
+        if (closed_)
+            return;
+        BOOST_LOG_TRIVIAL(trace) << "watch /slsfs/proxy start";
 
         client_.watch_children("/slsfs/proxy").then(
+            pool_,
             [this, child] (zk::future<zk::watch_children_result> children) {
-                [[maybe_unused]] auto&& res = children.get();
+                auto&& res = children.get();
                 BOOST_LOG_TRIVIAL(trace) << "set watch ok";
 
                 res.next().then(
+                    pool_,
                     [this, child, children=std::move(children)] (zk::future<zk::event> event) {
                         zk::event const & e = event.get();
                         BOOST_LOG_TRIVIAL(info) << "watch event get: " << e.type();
@@ -101,6 +130,7 @@ public:
         BOOST_LOG_TRIVIAL(info) << "start_reconfigure";
 
         client_.get_children("/slsfs/proxy").then(
+            pool_,
             [this] (zk::future<zk::get_children_result> children) {
                 std::vector<uuid::uuid> new_proxy_list;
                 std::vector<std::string> list = children.get().children();
@@ -110,22 +140,61 @@ public:
                                 uuid::decode_base64);
 
                 std::sort(new_proxy_list.begin(), new_proxy_list.end());
-                launcher_.reconfigure(new_proxy_list.begin(), new_proxy_list.end());
+                launcher_.reconfigure(new_proxy_list.begin(),
+                                      new_proxy_list.end(),
+                                      *this);
             });
     }
 
     void start_heartbeat (std::string const& child, std::vector<char> const& payload)
     {
-        BOOST_LOG_TRIVIAL(trace) << "send heartbeat";
+        if (closed_)
+            return;
+
+        using namespace std::string_literals;
+        client_.set("/slsfs/proxy/"s + child, payload).then(
+            pool_,
+            [this, child, payload] (zk::future<zk::set_result>) {
+                //BOOST_LOG_TRIVIAL(trace) << "heartbeat set: " << result.get();
+                auto timer = std::make_shared<net::deadline_timer>(io_context_, boost::posix_time::seconds(2));
+                timer->async_wait(
+                    [this, timer, child, payload] (boost::system::error_code const& error) {
+                        if (error)
+                            BOOST_LOG_TRIVIAL(error) << "have error = " << error;
+                        else
+                            start_heartbeat(child, payload);
+                    });
+            });
+    }
+
+    auto get_uuid (std::string const& child) -> net::ip::tcp::endpoint
+    {
         using namespace std::string_literals;
 
-        client_.set("/slsfs/proxy"s + child, payload).then(
-            [this, child, payload] (zk::future<zk::set_result> result) {
-                using namespace std::chrono_literals;
-                BOOST_LOG_TRIVIAL(trace) << "heartbeat set: " << result.get();
-                std::this_thread::sleep_for(2s);
-                start_heartbeat(child, payload);
-            });
+        decltype(uuid_cache_)::accessor result;
+        if (uuid_cache_.find(result, child))
+            return result->second;
+
+        zk::future<zk::get_result> resp = client_.get("/slsfs/proxy/"s + child);
+        // std::vector<char>
+        zk::buffer const buf = resp.get().data();
+
+        auto const colon = std::find(buf.begin(), buf.end(), ':');
+
+        std::string host(std::distance(buf.begin(), colon), '\0');
+        std::copy(buf.begin(), colon, host.begin());
+
+        std::string port(std::distance(std::next(colon), buf.end()), '\0');
+        std::copy(std::next(colon), buf.end(), port.begin());
+
+        net::ip::tcp::resolver resolver(io_context_);
+        for (net::ip::tcp::endpoint resolved : resolver.resolve(host, port))
+        {
+            //net::ip::tcp::endpoint resolved = resolver.resolve(host, port);
+            uuid_cache_.emplace(child, resolved);
+            return resolved;
+        }
+        return {};
     }
 };
 
