@@ -9,6 +9,7 @@
 #include <Poco/Base64Encoder.h>
 #include <Poco/Base64Decoder.h>
 
+#include <sstream>
 #include <random>
 #include <vector>
 

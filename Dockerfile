@@ -5,7 +5,7 @@ RUN apt-get update && \
     pip3 install conan
 
 RUN conan profile new default --detect &&\
-    sed -i 's/compiler.libcxx=libstdc++/compiler.libcxx=libstdc++11/g' /root/.conan/profiles/default
+    conan profile update settings.compiler.libcxx=libstdc++11 default
 
 ADD profiles /pre/profiles
 ADD conanfile.txt /pre
@@ -30,7 +30,7 @@ ARG debug
 
 RUN --mount=type=cache,target=/final/build \
     cd /final && \
-    bash -c 'echo debug=$debug; if [[ -z "$debug" ]]; then make release; else make debug; fi' && \
+    bash -c 'if [[ -z "$debug" ]]; then make release; else make debug; fi' && \
     cp /final/build/bin/* /bin && \
     chmod +x /bin/run && chmod +x /bin/slsfs-client
 
