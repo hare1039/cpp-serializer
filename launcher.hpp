@@ -74,13 +74,17 @@ class launcher
     jobmap started_jobs_;
     net::io_context::strand started_jobs_strand_, job_launch_strand_;
     uuid::uuid const& id_;
+    std::string announce_host_;
+    net::ip::port_type announce_port_;
 
 public:
-    launcher(net::io_context& io, uuid::uuid const& id):
+    launcher(net::io_context& io, uuid::uuid const& id, std::string const& announce, net::ip::port_type port):
         io_context_{io},
         started_jobs_strand_{io},
         job_launch_strand_{io},
-        id_{id} {}
+        id_{id},
+        announce_host_{announce},
+        announce_port_{port} {}
 
     void add_worker(tcp::socket socket, pack::packet_pointer)
     {
@@ -141,7 +145,8 @@ public:
             if (!reuse_worker)
             {
                 BOOST_LOG_TRIVIAL(info) << "No avaliable worker. Start one.";
-                create_worker(fmt::format("{{ \"type\": \"wakeup\" }}"));
+                create_worker(fmt::format("{{ \"type\": \"wakeup\", \"host\": \"{}\", \"port\": \"{}\" }}",
+                                          announce_host_, announce_port_));
                 return nullptr;
             }
             else

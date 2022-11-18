@@ -55,7 +55,7 @@ void readtest (int const times, int const bufsize, std::function<int(int)> genpo
     boost::asio::io_context io_context;
     tcp::socket s(io_context);
     tcp::resolver resolver(io_context);
-    boost::asio::connect(s, resolver.resolve("ow-ctrl", "12000"));
+    boost::asio::connect(s, resolver.resolve("192.168.0.224", "12001"));
 
     std::string const buf(bufsize, 'A');
     std::list<double> records;
@@ -111,7 +111,7 @@ void writetest (int const times, int const bufsize, std::function<int(int)> genp
     boost::asio::io_context io_context;
     tcp::socket s(io_context);
     tcp::resolver resolver(io_context);
-    boost::asio::connect(s, resolver.resolve("ow-ctrl", "12000"));
+    boost::asio::connect(s, resolver.resolve("192.168.0.224", "12001"));
 
     std::string const buf(bufsize, 'A');
 

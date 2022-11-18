@@ -315,11 +315,11 @@ class tcp_server
     launcher::launcher launcher_;
 
 public:
-    tcp_server(net::io_context& io_context, net::ip::port_type port, uuid::uuid & id)
+    tcp_server(net::io_context& io_context, net::ip::port_type port, uuid::uuid & id, std::string const& announce)
         : id_{id},
           io_context_(io_context),
           acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
-          launcher_{io_context, id_} {
+          launcher_{io_context, id_, announce, port} {
         start_accept();
     }
 
@@ -374,7 +374,7 @@ int main(int argc, char* argv[])
     std::string const announce = vm["announce"].as<std::string>();
     uuid::uuid server_id = uuid::gen_uuid();
 
-    tcp_server server{ioc, port, server_id};
+    tcp_server server{ioc, port, server_id, announce};
     BOOST_LOG_TRIVIAL(info) << server_id << " listen on " << port;
 
     zookeeper::zookeeper zoo {ioc, server.launcher()};
