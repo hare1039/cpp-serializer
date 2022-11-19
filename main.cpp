@@ -224,7 +224,7 @@ public:
                 if (not ec)
                 {
                     self->launcher_.start_trigger_post(
-                        *read_buf,
+                        *read_buf, pack,
                         [self, pack] (pack::packet_pointer resp) {
                             self->start_write(resp);
                             self->start_read_header();

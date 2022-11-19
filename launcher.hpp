@@ -124,11 +124,15 @@ public:
                 }));
     }
 
+    void on_worker_close(std::shared_ptr<df::worker> worker) {
+        worker_set_.erase(worker);
+    }
+
     auto get_worker_from_pool(pack::packet_pointer /*packet_ptr*/) -> std::shared_ptr<df::worker>
     {
         for (auto&& worker_pair : worker_set_)
         {
-            if (worker_pair.first->pending_jobs() <= 5)
+            if (worker_pair.first->pending_jobs() <= 5 and worker_pair.first->is_valid())
                 return worker_pair.first;
         }
         return nullptr;
@@ -175,7 +179,7 @@ public:
             }
 
             BOOST_LOG_TRIVIAL(trace) << "Starting jobs, Start post. ";
-
+            started_jobs_.emplace(j->pack_->header, j);
             worker_ptr->start_write(j->pack_);
 
             using namespace std::chrono_literals;
@@ -208,18 +212,17 @@ public:
     }
 
     template<typename Callback>
-    void start_trigger_post(std::string const& body, Callback next)
+    void start_trigger_post(std::string const& body, pack::packet_pointer original_pack, Callback next)
     {
         pack::packet_pointer pack = std::make_shared<pack::packet>();
-
-        pack->header.gen();
+        pack->header = original_pack->header;
+//        pack->header.gen();
         pack->header.type = pack::msg_t::worker_push_request;
         pack->data.buf = std::vector<pack::unit_t>(body.size());
         std::memcpy(pack->data.buf.data(), body.data(), body.size());
 
         auto j = std::make_shared<job>(io_context_, pack, next);
         pending_jobs_.push(j);
-        started_jobs_.emplace(pack->header, j);
         start_jobs();
     }
 

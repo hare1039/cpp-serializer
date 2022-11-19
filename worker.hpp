@@ -12,22 +12,27 @@
 namespace df
 {
 
+class worker;
+using worker_ptr = std::shared_ptr<worker>;
+
 template<typename T>
 concept IsLauncher = requires(T l)
 {
     { l.on_worker_response(std::declval<pack::packet_pointer>()) } -> std::convertible_to<void>;
     { l.on_worker_ack     (std::declval<pack::packet_pointer>()) } -> std::convertible_to<void>;
+    { l.on_worker_close   (std::declval<worker_ptr>())           } -> std::convertible_to<void>;
 };
 
 class worker : public std::enable_shared_from_this<worker>
 {
     net::io_context::strand write_strand_;
     tcp::socket socket_;
-    bool valid_ = true;
+    std::atomic<bool> valid_ = true;
     std::atomic<unsigned int> count_ = 0;
     using launcher_callback = boost::signals2::signal<void (pack::packet_pointer)>;
     launcher_callback on_worker_ack_;
     launcher_callback on_worker_response_;
+    boost::signals2::signal<void (worker_ptr)> on_worker_close_;
 
 public:
     template<typename Launcher> requires IsLauncher<Launcher>
@@ -44,6 +49,10 @@ public:
                 [&l, this] (pack::packet_pointer p) {
                     count_--;
                     l.on_worker_response(p);
+                });
+            on_worker_close_.connect(
+                [&l, this] (worker_ptr p) {
+                    l.on_worker_close(p);
                 });
         }
 
@@ -67,8 +76,9 @@ public:
                     {
                     case pack::msg_t::worker_dereg:
                         BOOST_LOG_TRIVIAL(debug) << "worker get worker_dereg" << pack->header;
-                        self->valid_ = false;
-                        self->start_read_header();
+                        self->valid_.store(false);
+                        self->on_worker_close_(self->shared_from_this());
+                        //self->start_read_header();
                         break;
 
                     case pack::msg_t::worker_response:
