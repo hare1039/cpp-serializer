@@ -244,7 +244,7 @@ public:
 
     void start_send_reconfigure_message(fileid_worker_pair & pair, net::ip::tcp::endpoint new_proxy)
     {
-        BOOST_LOG_TRIVIAL(debug) << "start_send_reconfigure_message";
+        BOOST_LOG_TRIVIAL(debug) << "start_send_reconfigure_message: " << new_proxy;
 
         pack::packet_pointer p = std::make_shared<pack::packet>();
         p->header.type = pack::msg_t::proxyjoin;
@@ -252,9 +252,8 @@ public:
         auto ip = new_proxy.address().to_v4().to_bytes();
         auto port = pack::hton(new_proxy.port());
         p->data.buf = std::vector<pack::unit_t>(sizeof(ip) + sizeof(port));
-
         std::copy(ip.begin(), ip.end(), p->data.buf.begin());
-        p->data.buf.at(sizeof(ip)) = port;
+        std::memcpy(p->data.buf.data() + ip.size(), &port, sizeof(port));
 
         pair.second->start_write(p);
     }
