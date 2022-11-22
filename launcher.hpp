@@ -117,9 +117,12 @@ public:
             net::bind_executor(
                 started_jobs_strand_,
                 [this, pack] () {
+                    BOOST_LOG_TRIVIAL(debug) << "job " << pack->header << " get ack. cancel job timer";
+                    if (pack->empty())
+                        return;
                     job_ptr j = started_jobs_[pack->header];
+                    //BOOST_LOG_TRIVIAL(debug) << "job " << j->pack_->header << " get ack. cancel job timer";
                     j->state_ = job::state::started;
-                    BOOST_LOG_TRIVIAL(debug) << "job " << j->pack_->header << " get ack";
                     j->timer_.cancel();
                 }));
     }
@@ -183,6 +186,7 @@ public:
             worker_ptr->start_write(j->pack_);
 
             using namespace std::chrono_literals;
+            j->timer_.expires_from_now(2s);
             j->timer_.async_wait(
                 [this, j] (boost::system::error_code ec) {
                     if (ec && ec != boost::asio::error::operation_aborted)
@@ -192,7 +196,6 @@ public:
                     }
                 });
             BOOST_LOG_TRIVIAL(info) << "start job " << j->pack_->header;
-            j->timer_.expires_from_now(1s);
         }
     }
 
@@ -247,6 +250,7 @@ public:
         BOOST_LOG_TRIVIAL(debug) << "start_send_reconfigure_message: " << new_proxy;
 
         pack::packet_pointer p = std::make_shared<pack::packet>();
+        p->header = pair.first;
         p->header.type = pack::msg_t::proxyjoin;
 
         auto ip = new_proxy.address().to_v4().to_bytes();

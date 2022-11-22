@@ -194,6 +194,7 @@ public:
                     case pack::msg_t::worker_dereg:
                     case pack::msg_t::worker_push_request:
                     case pack::msg_t::worker_response:
+                    case pack::msg_t::trigger_reject:
                     {
                         BOOST_LOG_TRIVIAL(error) << "packet error " << pack->header;
                         pack::packet_pointer resp = std::make_shared<pack::packet>();
@@ -377,14 +378,15 @@ int main(int argc, char* argv[])
     tcp_server server{ioc, port, server_id, announce};
     BOOST_LOG_TRIVIAL(info) << server_id << " listen on " << port;
 
-    zookeeper::zookeeper zoo {ioc, server.launcher()};
-    std::vector<char> connection;
-    fmt::format_to(std::back_inserter(connection), "{}:{}", announce, port);
+    std::vector<char> announce_buf;
+    fmt::format_to(std::back_inserter(announce_buf), "{}:{}", announce, port);
+
+    zookeeper::zookeeper zoo {ioc, server.launcher(), server_id, announce_buf};
 
     if (vm.count("init"))
-        zoo.reset(server_id, connection);
+        zoo.reset();
     else
-        zoo.start_setup(server_id.encode_base64(), connection);
+        zoo.start_setup();
 
     net::signal_set listener(ioc, SIGINT, SIGTERM);
     listener.async_wait(

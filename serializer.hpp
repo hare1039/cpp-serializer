@@ -17,20 +17,20 @@
 namespace pack
 {
 
-namespace
+namespace hash
 {
 
 template <typename Integer>
-void hash_combine(std::size_t& seed, Integer value)
+void combine(std::size_t& seed, Integer value)
 {
     seed ^= value + 0x9e3779b9 + (seed<<6) + (seed>>2);
 }
 
 template <typename It>
-void hash_range(std::size_t& seed, It first, It last)
+void range(std::size_t& seed, It first, It last)
 {
     for(; first != last; ++first)
-        hash_combine(seed, *first);
+        combine(seed, *first);
 }
 
 } // namespace
@@ -54,7 +54,8 @@ enum class msg_t: unit_t
     worker_push_request = 10,
     worker_response = 11,
 
-    trigger = 15,
+    trigger = 14,
+    trigger_reject = 15,
 };
 
 template<typename Integer>
@@ -131,6 +132,18 @@ struct packet_header
         gen_sequence();
     }
 
+    bool empty()
+    {
+        for (unit_t c : key)
+            if (c != 0)
+                return false;
+
+        for (unit_t c : sequence)
+            if (c != 0)
+                return false;
+        return true;
+    }
+
     void parse(unit_t *pos)
     {
         // |type|
@@ -186,8 +199,8 @@ struct packet_header_key_hash
     auto operator() (packet_header const& k) const -> std::size_t
     {
         std::size_t seed = 0x1b873593;
-        hash_range(seed, k.key.begin(), k.key.end());
-        hash_range(seed, k.random_salt.begin(), k.random_salt.end());
+        hash::range(seed, k.key.begin(), k.key.end());
+        hash::range(seed, k.random_salt.begin(), k.random_salt.end());
         return seed;
     }
 };
@@ -264,6 +277,8 @@ struct packet
 
         return r;
     }
+
+    bool empty() { return header.empty(); }
 };
 
 using packet_pointer = std::shared_ptr<packet>;

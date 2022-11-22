@@ -99,6 +99,7 @@ public:
                     case pack::msg_t::worker_reg:
                     case pack::msg_t::worker_push_request:
                     case pack::msg_t::trigger:
+                    case pack::msg_t::trigger_reject:
                     {
                         BOOST_LOG_TRIVIAL(error) << "worker packet error" << pack->header;
                         self->start_read_header();
@@ -152,15 +153,6 @@ public:
                 }));
     }
 };
-
-
-    //template<typename OnCompletion>
-//    void start_post(pack::packet_pointer pack)//, OnCompletion && oncomp)
-//    {
-//        BOOST_LOG_TRIVIAL(trace) << "worker start post";
-//        //registered_job_[pack->header].connect(std::forward<OnCompletion>(oncomp));
-//        start_write(pack);
-//    }
 
 } // namespace df
 
